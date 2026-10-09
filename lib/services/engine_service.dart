@@ -148,6 +148,12 @@ String sanitizeModelOutput(String raw) => raw
     .replaceAll(_thinkBlock, '')
     .replaceAll(_specialTokens, '');
 
+/// Промпт, ушедший в движок, для отчёта о диагностике.
+///
+/// Пока ответ модели непонятен, первое, что нужно увидеть, — что именно
+/// было отправлено: с правильными токенами или без них.
+String? lastPromptSent;
+
 class LoadOutcome {
   const LoadOutcome({
     required this.spec,
@@ -277,11 +283,17 @@ Stream<GenEvent> streamAnswer({
     var gotAnything = false;
     var stalled = false;
 
+    final prompt = buildChatMlPrompt(
+      systemPrompt: systemPrompt,
+      history: history,
+    );
+    lastPromptSent = prompt;
+
     // Плагин бросает StateError, если генерация уже идёт. Мы к этому
     // готовы: интерфейс не даёт отправить второе сообщение, пока идёт первое.
     final iterator = StreamIterator<String>(
       _controller.generate(
-        prompt: buildChatMlPrompt(systemPrompt: systemPrompt, history: history),
+        prompt: prompt,
         maxTokens: maxTokens,
         temperature: temperature,
         topP: topP,

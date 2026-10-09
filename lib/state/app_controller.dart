@@ -84,6 +84,19 @@ class AppController extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  /// Что модель выдала в последний раз, дословно.
+  ///
+  /// Хранится отдельно от истории диалога и не очищается: пока ответ не
+  /// удалось отобразить, это единственный способ понять, что именно
+  /// вернул движок — пустая строка, мусор из переносов или нормальный
+  /// текст. Показывается в отчёте о диагностике.
+  String _lastRawOutput = '';
+  String get lastRawOutput => _lastRawOutput;
+
+  /// Промпт, который ушёл в движок, — тоже целиком. Берётся из движка:
+  /// там он записывается в момент отправки.
+  String get lastPrompt => lastPromptSent ?? '';
+
   int _loadStage = 0;
   int get loadStage => _loadStage;
 
@@ -342,6 +355,7 @@ class AppController extends ChangeNotifier {
     final startedAt = DateTime.now();
     GenerationStats? finalStats;
     String? failure;
+    _lastRawOutput = '';
 
     // Ответ не должен занимать весь контекст: место нужно ещё на вопрос
     // и историю диалога. На ужатом под память контексте запрошенная
@@ -388,6 +402,7 @@ class AppController extends ChangeNotifier {
 
       final finalText = buffer.toString().trim();
       final tps = finalStats?.tokensPerSecond;
+      _lastRawOutput = buffer.toString();
 
       _streaming = '';
       _pendingGeneration = false;
@@ -411,6 +426,12 @@ class AppController extends ChangeNotifier {
         );
         chatStore.save(_session);
         settingsStore.rememberChatState(_session);
+      } else {
+        // Модель ответила одними переносами и пробелами. Такой «ответ»
+        // не должен попадать в историю: он превращается в пустой серый
+        // прямоугольник и засоряет диалог.
+        failure ??= 'Модель не выдала ни одного слова — только пробелы. '
+            'Скорее всего, она не поняла формат диалога.';
       }
       _error = failure;
       notifyListeners();

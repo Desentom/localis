@@ -762,6 +762,19 @@ class _AboutCard extends StatelessWidget {
   }
 }
 
+/// Экранирует текст так, чтобы его было видно целиком в одну строку.
+///
+/// Без этого отчёт невозможно прочитать: модель могла вернуть тысячи
+/// переносов, и в буфер обмена попал бы неразличимый блок.
+String _escape(String raw, {int limit = 400}) {
+  final cut = raw.length > limit ? '${raw.substring(0, limit)}…' : raw;
+  return cut
+      .replaceAll('\\', '\\\\')
+      .replaceAll('\n', '\\n')
+      .replaceAll('\r', '\\r')
+      .replaceAll('\t', '\\t');
+}
+
 /// Версия приложения и полная диагностика одним нажатием.
 ///
 /// Понимание, какая сборка стоит, какая модель загружена и что с
@@ -791,6 +804,12 @@ class _DiagnosticsCard extends StatelessWidget {
       b.writeln('Vulkan: ${cap?.vulkanSupported ?? false ? 'да' : 'нет'}');
       b.writeln('Движок: llama_flutter_android');
       if (controller.error != null) b.writeln('Ошибка: ${controller.error}');
+      b.writeln('Сообщений в диалоге: ${controller.session.messages.length}');
+      b.writeln(
+        'Ответ модели (${controller.lastRawOutput.length} симв.): '
+        '${_escape(controller.lastRawOutput)}',
+      );
+      b.writeln('Промпт: ${_escape(controller.lastPrompt)}');
       return b.toString();
     }
 
