@@ -47,3 +47,7 @@ replay_pid*.log
 *.aab
 *.gguf
 *.gguf.part
+
+# Готовые APK живут в release/ и раздаются через GitHub Releases.
+# В коммитах им не место: бинарник раздувает клоны навсегда.
+release/*.apk

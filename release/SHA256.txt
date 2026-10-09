@@ -1,0 +1,10 @@
+﻿Localis v0.1.0
+Файл:    localis-v0.1.0-arm64.apk
+Размер:  91.2 МБ
+SHA256:  0145f31b3bbc945124358fbfe5cb076a660803d769f3009be8d6810b8c712040
+
+Проверка в PowerShell:
+  Get-FileHash .\localis-v0.1.0-arm64.apk -Algorithm SHA256
+
+Проверка в cmd:
+  certutil -hashfile localis-v0.1.0-arm64.apk SHA256
