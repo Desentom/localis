@@ -118,6 +118,15 @@ class AppController extends ChangeNotifier {
 
       await auth.initialize();
 
+      // Старые версии каталога могли оставить на диске файлы, которых
+      // в новом каталоге уже нет. Пока держим эту уборку здесь: один
+      // запуск — и место освобождено навсегда.
+      try {
+        await downloader.purgeUnknown();
+      } on Object {
+        // Не смогли почистить — не повод мешать работать.
+      }
+
       await _refreshInstalled();
 
       final pinned = _settings.modelId;
@@ -332,6 +341,7 @@ class AppController extends ChangeNotifier {
     final buffer = StringBuffer();
     final startedAt = DateTime.now();
     GenerationStats? finalStats;
+    String? failure;
 
     // Ответ не должен занимать весь контекст: место нужно ещё на вопрос
     // и историю диалога. На ужатом под память контексте запрошенная
@@ -370,6 +380,8 @@ class AppController extends ChangeNotifier {
             }
           case GenDone(:final stats):
             finalStats = stats;
+          case GenFailed(:final reason):
+            failure = reason;
         }
         notifyListeners();
       }
@@ -400,8 +412,9 @@ class AppController extends ChangeNotifier {
         chatStore.save(_session);
         settingsStore.rememberChatState(_session);
       }
+      _error = failure;
       notifyListeners();
-      return true;
+      return failure == null;
     } on Object catch (e) {
       // Частичный ответ не выбрасываем — человек не должен терять написанное.
       final partial = buffer.toString().trim();

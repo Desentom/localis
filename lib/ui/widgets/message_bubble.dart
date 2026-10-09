@@ -51,16 +51,28 @@ class MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text.rich(
-                    _render(message.text, onLight: isUser),
-                    style: TextStyle(
-                      // Пузырь пользователя залит белым — текст в нём чёрный.
-                      // Пузырь модели тёмный — текст белый. Это единственное
-                      // место, где в приложении есть инверсия, и она
-                      // работает как основной признак «кто говорит».
-                      color: isUser ? Colors.black : AppColors.textPrimary,
-                      fontSize: 15,
-                      height: 1.45,
+                  // Ответ ограничен по высоте. Без этого предельного размера
+                  // модель, которая не поняла формат диалога, заливала экран
+                  // серым прямоугольником на пол-экрана: текст состоял из
+                  // сотен переносов, и разобрать его было нечем. Теперь
+                  // такой текст просто прокручивается внутри пузыря.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text.rich(
+                        _render(message.text, onLight: isUser),
+                        style: TextStyle(
+                          // Пузырь пользователя залит белым — текст в нём
+                          // чёрный. Пузырь модели тёмный — текст белый. Это
+                          // единственное место, где в приложении есть
+                          // инверсия, и она работает как признак «кто говорит».
+                          color: isUser ? Colors.black : AppColors.textPrimary,
+                          fontSize: 15,
+                          height: 1.45,
+                        ),
+                      ),
                     ),
                   ),
                   if (streaming) const _Caret(),

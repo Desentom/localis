@@ -106,6 +106,32 @@ class ModelDownloader {
     return total;
   }
 
+  /// Удаляет файлы, которых больше нет в каталоге.
+  ///
+  /// Нужно после смены каталога моделей: старая версия скачивает файлы,
+  /// новая о них не знает, и они молча занимают место — в сводке хранилища
+  /// видно «занято 397 МБ», а в списке моделей их нет. Недоскачанные
+  /// файлы `.part` не трогаем: они нужны для продолжения загрузки.
+  ///
+  /// Возвращает освобождённый объём в байтах.
+  Future<int> purgeUnknown() async {
+    final known = {for (final s in ModelCatalog.all) s.fileName};
+    final dir = await modelsDir();
+    var freed = 0;
+    await for (final e in dir.list()) {
+      if (e is! File) continue;
+      final name = e.uri.pathSegments.last;
+      if (known.contains(name) || name.endsWith('.part')) continue;
+      try {
+        freed += await e.length();
+        await e.delete();
+      } on FileSystemException {
+        // Файл занят другим процессом — оставляем, попробуем в следующий раз.
+      }
+    }
+    return freed;
+  }
+
   Future<void> deleteModel(ModelSpec spec) async {
     final file = File(await targetPath(spec));
     if (file.existsSync()) await file.delete();

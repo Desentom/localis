@@ -144,32 +144,34 @@ abstract final class ModelCatalog {
     );
   }
 
-  static final qwen3_0_6b = _spec(
-    id: 'qwen3-0.6b-q4km',
-    title: 'Qwen3 0.6B',
-    params: '0.6B',
+  static final qwen25_0_5b = _spec(
+    id: 'qwen2.5-0.5b-instruct-q4km',
+    title: 'Qwen2.5 0.5B',
+    params: '0.5B',
     tier: ModelTier.light,
-    bytes: 396705472,
-    url: 'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf',
-    fileName: 'Qwen3-0.6B-Q4_K_M.gguf',
-    // 28 слоёв, 2 KV-головы, head_dim 128: 2 × 28 × 2 × 128 × 2 = 28 672 Б
-    kvBytesPerToken: 28672,
-    speedHint: '20–35 ток/с',
+    bytes: 491400032,
+    url:
+        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    fileName: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    // 24 слоя, 2 KV-головы, head_dim 64: 2 × 24 × 2 × 64 × 2 = 12 288 Б
+    kvBytesPerToken: 12288,
+    speedHint: '25–40 ток/с',
     summary:
         'Самая лёгкая. Быстрые короткие ответы, простая арифметика, '
         'переводы, определения. Длинные тексты и рассуждения — нет.',
   );
 
-  static final qwen3_1_7b = _spec(
-    id: 'qwen3-1.7b-q4km',
-    title: 'Qwen3 1.7B',
-    params: '1.7B',
+  static final qwen25_1_5b = _spec(
+    id: 'qwen2.5-1.5b-instruct-q4km',
+    title: 'Qwen2.5 1.5B',
+    params: '1.5B',
     tier: ModelTier.balanced,
-    bytes: 1107409472,
-    url: 'https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf',
-    fileName: 'Qwen3-1.7B-Q4_K_M.gguf',
-    // 28 слоёв, 8 KV-голов, head_dim 128: 2 × 28 × 8 × 128 × 2 = 114 688 Б
-    kvBytesPerToken: 114688,
+    bytes: 1117320736,
+    url:
+        'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    // 28 слоёв, 2 KV-головы, head_dim 128: 2 × 28 × 2 × 128 × 2 = 28 672 Б
+    kvBytesPerToken: 28672,
     speedHint: '8–18 ток/с',
     summary:
         'Рекомендуемая по умолчанию. Русский понимает заметно лучше мелких '
@@ -177,30 +179,31 @@ abstract final class ModelCatalog {
   );
 
   static final qwen25_3b = _spec(
-    id: 'qwen2.5-3b-q4km',
+    id: 'qwen2.5-3b-instruct-q4km',
     title: 'Qwen2.5 3B',
     params: '3B',
     tier: ModelTier.quality,
     bytes: 2104932768,
-    url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
+    url:
+        'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
     fileName: 'qwen2.5-3b-instruct-q4_k_m.gguf',
     // 36 слоёв, 2 KV-головы, head_dim 128: 2 × 36 × 2 × 128 × 2 = 36 864 Б
     kvBytesPerToken: 36864,
     speedHint: '4–9 ток/с',
     summary:
-        'Официальная модель Qwen, самая связная речь из доступных. Есть '
-        'режим «думать»: включается отдельным пресетом и отвечает медленнее, '
-        'но на задачах вроде уравнений заметно меньше ошибок.',
+        'Самая связная речь из доступных. Тянет объяснения по шагам и '
+        'тексты с фактами, но требует заметно больше памяти и времени.',
   );
 
-  static final qwen3_4b = _spec(
-    id: 'qwen3-4b-q4km',
-    title: 'Qwen3 4B',
+  static final qwen3_4bInstruct = _spec(
+    id: 'qwen3-4b-instruct-2507-q4km',
+    title: 'Qwen3 4B Instruct',
     params: '4B',
     tier: ModelTier.strong,
-    bytes: 2497281312,
-    url: 'https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
-    fileName: 'Qwen3-4B-Q4_K_M.gguf',
+    bytes: 2497281120,
+    url:
+        'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+    fileName: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
     // 36 слоёв, 8 KV-голов, head_dim 128: 2 × 36 × 8 × 128 × 2 = 147 456 Б
     kvBytesPerToken: 147456,
     speedHint: '2–6 ток/с',
@@ -210,7 +213,12 @@ abstract final class ModelCatalog {
   );
 
   /// Порядок важен: от лёгкой к тяжёлой.
-  static final List<ModelSpec> all = [qwen3_0_6b, qwen3_1_7b, qwen25_3b, qwen3_4b];
+  static final List<ModelSpec> all = [
+    qwen25_0_5b,
+    qwen25_1_5b,
+    qwen25_3b,
+    qwen3_4bInstruct,
+  ];
 
   static ModelSpec byId(String id) {
     for (final m in all) {
@@ -220,7 +228,7 @@ abstract final class ModelCatalog {
   }
 
   /// Модель по умолчанию.
-  static ModelSpec get fallback => qwen3_1_7b;
+  static ModelSpec get fallback => qwen25_1_5b;
 
   /// Насколько модель подходит телефону с заданным объёмом свободной
   /// памяти. Три уровня, а не два: раньше модель либо подходила, либо

@@ -93,12 +93,12 @@ void main() {
       // 2 ГБ свободно — помещается 1.7B, но не 3B.
       expect(
         ModelCatalog.recommend(2 * 1024 * 1024 * 1024).id,
-        ModelCatalog.qwen3_1_7b.id,
+        ModelCatalog.qwen25_1_5b.id,
       );
       // 4 ГБ свободно — помещается и 3B, и 4B.
       expect(
         ModelCatalog.recommend(4 * 1024 * 1024 * 1024).id,
-        ModelCatalog.qwen3_4b.id,
+        ModelCatalog.qwen3_4bInstruct.id,
       );
       // 3,5 ГБ свободно — помещается 3B, но не 4B.
       expect(
@@ -108,7 +108,7 @@ void main() {
       // Много памяти — максимум каталога.
       expect(
         ModelCatalog.recommend(12 * 1024 * 1024 * 1024).id,
-        ModelCatalog.qwen3_4b.id,
+        ModelCatalog.qwen3_4bInstruct.id,
       );
     });
 
@@ -117,8 +117,8 @@ void main() {
       // с 1,6 ГБ свободной памяти не мог выбрать вообще ни одну модель —
       // приложение становилось полностью нерабочим.
       const free = 1 * 1024 * 1024 * 1024;
-      expect(ModelCatalog.recommend(free).id, ModelCatalog.qwen3_0_6b.id);
-      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, free), ModelFit.comfortable);
+      expect(ModelCatalog.recommend(free).id, ModelCatalog.qwen25_0_5b.id);
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen25_0_5b, free), ModelFit.comfortable);
     });
 
     test('порог памяти держится около размера файла, а не вдвое больше', () {
@@ -160,22 +160,22 @@ void main() {
 
     test('при заведомо недостаточной памяти модель помечается невозможной', () {
       expect(
-        ModelCatalog.fitFor(ModelCatalog.qwen3_4b, 64 * 1024 * 1024),
+        ModelCatalog.fitFor(ModelCatalog.qwen3_4bInstruct, 64 * 1024 * 1024),
         ModelFit.impossible,
       );
     });
 
     test('при неизвестном объёме памяти модель не блокируется', () {
-      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, 0), ModelFit.unknown);
-      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, 0).canRun, isTrue);
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen25_0_5b, 0), ModelFit.unknown);
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen25_0_5b, 0).canRun, isTrue);
     });
 
     test('самая лёгкая модель нажимается даже когда памяти совсем нет', () {
       // Иначе на слабом телефоне получается экран, где нельзя нажать
       // ни на одну карточку: тупик без единого действия.
-      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_0_6b, 64 * 1024 * 1024), isTrue);
-      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_4b, 64 * 1024 * 1024), isFalse);
-      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_1_7b, 8 * 1024 * 1024 * 1024), isTrue);
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen25_0_5b, 64 * 1024 * 1024), isTrue);
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_4bInstruct, 64 * 1024 * 1024), isFalse);
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen25_1_5b, 8 * 1024 * 1024 * 1024), isTrue);
     });
 
     test('контекст ужимается под память, а не приводит к отказу', () {
@@ -184,12 +184,12 @@ void main() {
 
       // Лёгкая модель при такой памяти получает запрошенный контекст целиком.
       expect(
-        ModelCatalog.fitContext(ModelCatalog.qwen3_0_6b, free, 4096),
+        ModelCatalog.fitContext(ModelCatalog.qwen25_0_5b, free, 4096),
         4096,
       );
 
       // Тяжёлая модель запускается с уменьшенным контекстом вместо отказа.
-      final shrunk = ModelCatalog.fitContext(ModelCatalog.qwen3_4b, free, 4096);
+      final shrunk = ModelCatalog.fitContext(ModelCatalog.qwen3_4bInstruct, free, 4096);
       expect(shrunk, lessThan(4096));
       expect(shrunk, greaterThanOrEqualTo(ModelCatalog.minContext));
     });
@@ -217,7 +217,7 @@ void main() {
     });
 
     test('при неизвестной памяти контекст остаётся как запрошено', () {
-      expect(ModelCatalog.fitContext(ModelCatalog.qwen3_0_6b, 0, 8192), 8192);
+      expect(ModelCatalog.fitContext(ModelCatalog.qwen25_0_5b, 0, 8192), 8192);
     });
 
     test('размер KV-кэша на токен у всех моделей положителен', () {
@@ -229,13 +229,13 @@ void main() {
     test('явный выбор пользователя важнее рекомендации', () {
       final picked = ModelCatalog.recommend(
         12 * 1024 * 1024 * 1024,
-        userPinned: ModelCatalog.qwen3_0_6b.id,
+        userPinned: ModelCatalog.qwen25_0_5b.id,
       );
-      expect(picked.id, ModelCatalog.qwen3_0_6b.id);
+      expect(picked.id, ModelCatalog.qwen25_0_5b.id);
     });
 
     test('при совсем малой памяти не падает, а берёт лёгкую', () {
-      expect(ModelCatalog.recommend(512 * 1024 * 1024).id, ModelCatalog.qwen3_0_6b.id);
+      expect(ModelCatalog.recommend(512 * 1024 * 1024).id, ModelCatalog.qwen25_0_5b.id);
     });
 
     test('неизвестный id возвращает модель по умолчанию, а не бросает', () {
@@ -335,7 +335,7 @@ void main() {
         personaPrompt: 'Ты репетитор.',
         customPrompt: '',
         thinkMode: true,
-        spec: ModelCatalog.qwen3_1_7b,
+        spec: ModelCatalog.qwen25_1_5b,
       );
       expect(prompt, contains('Ты репетитор.'));
       expect(prompt, contains('разбери задачу'));
@@ -390,6 +390,74 @@ void main() {
     });
   });
 
+  group('buildChatMlPrompt', () {
+    // Регрессия: плагин llama_flutter_android собирает «chatml» как обычный
+    // текст без специальных токенов. Qwen без них не понимает, где кончается
+    // реплика, и не знает, когда остановиться: приложение «думает» минутами,
+    // а вместо ответа рисует пустой серый прямоугольник во весь экран.
+    test('каждая реплика обрамлена специальными токенами', () {
+      final p = buildChatMlPrompt(
+        systemPrompt: 'Ты помощник.',
+        history: [
+          ChatMessage(role: Role.user, text: 'Привет'),
+          ChatMessage(role: Role.assistant, text: 'Здравствуйте!'),
+          ChatMessage(role: Role.user, text: 'Что такое фотосинтез?'),
+        ],
+      );
+
+      expect(p, startsWith('<|im_start|>\nsystem\nТы помощник.\n<|im_end|>\n'));
+      expect(p, contains('<|im_start|>\nuser\nПривет\n<|im_end|>'));
+      expect(
+        p,
+        contains('<|im_start|>\nassistant\nЗдравствуйте!\n<|im_end|>'),
+      );
+      expect(p, contains('<|im_start|>\nuser\nЧто такое фотосинтез?\n<|im_end|>'));
+    });
+
+    test('промпт заканчивается началом хода модели', () {
+      final p = buildChatMlPrompt(systemPrompt: '', history: const []);
+      expect(p, '<|im_start|>\nassistant\n');
+    });
+
+    test('без системной подсказки лишний блок не добавляется', () {
+      final p = buildChatMlPrompt(
+        systemPrompt: '   ',
+        history: [ChatMessage(role: Role.user, text: 'Привет')],
+      );
+      expect(p, isNot(contains('system')));
+      expect(p, '<|im_start|>\nuser\nПривет\n<|im_end|>\n<|im_start|>\nassistant\n');
+    });
+
+    test('пустые реплики пропускаются', () {
+      final p = buildChatMlPrompt(
+        systemPrompt: '',
+        history: [
+          ChatMessage(role: Role.user, text: '   '),
+          ChatMessage(role: Role.user, text: 'Привет'),
+        ],
+      );
+      expect('<|im_start|>'.allMatches(p).length, 2);
+    });
+
+    test('специальные токены в ответе вырезаются', () {
+      expect(
+        sanitizeModelOutput('Ответ<|im_end|>\n\nещё'),
+        'Ответ\n\nещё',
+      );
+      expect(sanitizeModelOutput('<think>размышление</think>Итог'), 'Итог');
+      expect(sanitizeModelOutput('Обычный ответ'), 'Обычный ответ');
+    });
+
+    test('название модели не содержит подсказок на уголки в скобках', () {
+      // Специальные токены вырезаются регуляркой, поэтому важно, чтобы
+      // обычный текст под них не попадал.
+      expect(
+        sanitizeModelOutput('Сравни: a <|b|> и c'),
+        'Сравни: a  и c',
+      );
+    });
+  });
+
   group('resolveGpuLayers', () {
     const noGpu = DeviceCapability(
       cores: 8,
@@ -401,7 +469,7 @@ void main() {
     );
 
     test('без Vulkan работаем только на процессоре', () {
-      expect(resolveGpuLayers(noGpu, ModelCatalog.qwen3_1_7b), 0);
+      expect(resolveGpuLayers(noGpu, ModelCatalog.qwen25_1_5b), 0);
     });
 
     test('при нехватке памяти GPU-слои не даём', () {
@@ -414,7 +482,7 @@ void main() {
         recommendedGpuLayers: 32,
       );
       // Модель 1.7B требует 3 ГБ, свободно 0,5 — вылет гарантирован.
-      expect(resolveGpuLayers(tight, ModelCatalog.qwen3_1_7b), 0);
+      expect(resolveGpuLayers(tight, ModelCatalog.qwen25_1_5b), 0);
     });
 
     test('с запасом памяти берём рекомендацию плагина', () {
@@ -426,7 +494,7 @@ void main() {
         gpuName: 'Adreno 740',
         recommendedGpuLayers: 16,
       );
-      expect(resolveGpuLayers(roomy, ModelCatalog.qwen3_1_7b), 16);
+      expect(resolveGpuLayers(roomy, ModelCatalog.qwen25_1_5b), 16);
     });
   });
 }

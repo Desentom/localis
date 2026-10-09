@@ -71,6 +71,83 @@ class GenDone extends GenEvent {
   final GenerationStats stats;
 }
 
+/// Генерация сорвалась: модель замолчала, а не закончила.
+class GenFailed extends GenEvent {
+  const GenFailed(this.reason);
+  final String reason;
+}
+
+/// Собирает промпт в формате ChatML — вручную, а не через плагин.
+///
+/// Почему не `generateChat`: у `llama_flutter_android` шаблон «chatml» —
+/// это обычный текст вида `system\n...\nuser\n...\nassistant\n`, без
+/// специальных токенов `<|im_start|>` и `<|im_end|>`. Для Qwen это
+/// критично: `` — единственный способ понять, где заканчивается
+/// реплика, и одновременно маркер остановки генерации.
+///
+/// Без них модель не знает, что ответ уже начался, продолжает текст как
+/// обычное продолжение и никогда не останавливается. На практике это
+/// выглядело так: приложение «думает» минутами, а вместо ответа
+/// появляется пустой серый прямоугольник во весь экран.
+///
+/// Собранный вручную промпт уходит в `generate`, где нативная часть
+/// токенизирует его с `parse_special=true` — то есть `<|im_start|>`
+/// превращается в настоящий специальный токен, а не в текст.
+String buildChatMlPrompt({
+  required String systemPrompt,
+  required List<app.ChatMessage> history,
+}) {
+  const imStart = '<|im_start|>';
+  const imEnd = '<|im_end|>';
+
+  final b = StringBuffer();
+  if (systemPrompt.trim().isNotEmpty) {
+    b
+      ..write(imStart)
+      ..write('\nsystem\n')
+      ..write(systemPrompt.trim())
+      ..write('\n')
+      ..write(imEnd)
+      ..write('\n');
+  }
+  for (final m in history) {
+    if (m.text.trim().isEmpty) continue;
+    b
+      ..write(imStart)
+      ..write('\n')
+      ..write(m.role.wire)
+      ..write('\n')
+      ..write(m.text.trim())
+      ..write('\n')
+      ..write(imEnd)
+      ..write('\n');
+  }
+  // Начало хода модели. Именно с этого места она продолжает текст.
+  b
+    ..write(imStart)
+    ..write('\nassistant\n');
+  return b.toString();
+}
+
+/// Блок размышлений целиком: содержимое пользователю не нужно, а по
+/// кускам маркеров обрыв в середине выглядит как мусор.
+final _thinkBlock = RegExp(
+  r'<think>.*?</think>',
+  dotAll: true,
+);
+
+/// Служебные токены, которые иногда просачиваются в текст ответа.
+///
+/// Отдавать их пользователю незачем, а `` без пары открывающего
+/// тега ещё и выглядит как кусок исходного кода.
+final _specialTokens = RegExp(
+  r'<\|[A-Za-z0-9_\-]{1,40}\|>|</?think>',
+);
+
+String sanitizeModelOutput(String raw) => raw
+    .replaceAll(_thinkBlock, '')
+    .replaceAll(_specialTokens, '');
+
 class LoadOutcome {
   const LoadOutcome({
     required this.spec,
@@ -165,12 +242,24 @@ class EngineService {
     return outcome;
   }
 
-  /// Потоковая генерация ответа по диалогу.
-  ///
-  /// События идут в таком порядке: куски текста ([GenText]), а последним
-  /// обязательно [GenDone] с метриками. Останавливать можно на любом
-  /// кадре — поток просто закроется, а статистика придёт с причиной stopped.
-  Stream<GenEvent> streamAnswer({
+  /// Сколько ждём первый токен, прежде чем признать неудачу.
+///
+/// Значение намеренно большое: на слабом телефоне разбор промпта в 400
+/// токенов моделью 3B занимает десятки секунд, и короткий таймаут
+/// рубил бы нормальные ответы на живом. Но бесконечное ожидание хуже —
+/// человек не понимает, зависло приложение или телефон думает.
+final Duration firstTokenTimeout = const Duration(seconds: 45);
+
+/// Пауза между соседними токенами, после которой считаем, что поток встал.
+/// Восемьдесят секунд — это уже не «медленно», это «сломалось».
+final Duration stallTimeout = const Duration(seconds: 80);
+
+/// Потоковая генерация ответа по диалогу.
+///
+/// События идут в таком порядке: куски текста ([GenText]), последним —
+/// либо [GenDone] с метриками, либо [GenFailed], если модель замолчала.
+/// Останавливать можно на любом кадре.
+Stream<GenEvent> streamAnswer({
     required ModelSpec spec,
     required List<app.ChatMessage> history,
     required String systemPrompt,
@@ -185,29 +274,85 @@ class EngineService {
     final before = await _contextTokens();
 
     var chars = 0;
-
-    final messages = <llama.ChatMessage>[
-      if (systemPrompt.trim().isNotEmpty)
-        llama.ChatMessage(role: 'system', content: systemPrompt.trim()),
-      ...history.map((m) => llama.ChatMessage(role: m.role.wire, content: m.text)),
-    ];
+    var gotAnything = false;
+    var stalled = false;
 
     // Плагин бросает StateError, если генерация уже идёт. Мы к этому
     // готовы: интерфейс не даёт отправить второе сообщение, пока идёт первое.
-    final stream = _controller.generateChat(
-      messages: messages,
-      template: chatTemplateFor(spec),
-      maxTokens: maxTokens,
-      temperature: temperature,
-      topP: topP,
-      topK: topK,
-      repeatPenalty: repeatPenalty,
+    final iterator = StreamIterator<String>(
+      _controller.generate(
+        prompt: buildChatMlPrompt(systemPrompt: systemPrompt, history: history),
+        maxTokens: maxTokens,
+        temperature: temperature,
+        topP: topP,
+        topK: topK,
+        repeatPenalty: repeatPenalty,
+      ),
     );
 
-    await for (final piece in stream) {
-      if (piece.isEmpty) continue;
-      chars += piece.length;
-      yield GenText(piece);
+    // Сторож: пока поток идёт нормально, он молчит. Если за отведённое
+    // время не пришло ничего — рвём генерацию и объясняем, что случилось.
+    Timer? watchdog;
+    void armWatchdog(Duration limit) {
+      watchdog?.cancel();
+      watchdog = Timer(limit, () {
+        stalled = true;
+        unawaited(stop());
+      });
+    }
+
+    armWatchdog(firstTokenTimeout);
+
+    try {
+      while (true) {
+        final bool hasNext;
+        try {
+          hasNext = await iterator.moveNext().timeout(
+            gotAnything ? stallTimeout : firstTokenTimeout,
+          );
+        } on TimeoutException {
+          // Поток не отвечает — выходим, не оставляя интерфейс висеть
+          // в состоянии «думает» навсегда.
+          yield GenFailed(
+            gotAnything
+                ? 'Модель замолчала на середине ответа. Скорее всего, не '
+                      'хватило памяти — попробуйте модель поменьше.'
+                : 'Модель не отвечает дольше '
+                      '${firstTokenTimeout.inSeconds} секунд. Попробуйте модель '
+                      'поменьше или закройте часть приложений.',
+          );
+          return;
+        }
+
+        if (stalled) {
+          yield const GenFailed(
+            'Генерация сорвана: телефон не справляется. Попробуйте модель '
+            'поменьше.',
+          );
+          return;
+        }
+
+        if (!hasNext) break;
+
+        final piece = sanitizeModelOutput(iterator.current);
+        armWatchdog(stallTimeout);
+        if (piece.isEmpty) continue;
+
+        gotAnything = true;
+        chars += piece.length;
+        yield GenText(piece);
+      }
+    } finally {
+      watchdog?.cancel();
+      await iterator.cancel();
+    }
+
+    if (!gotAnything && !_stopRequested) {
+      yield const GenFailed(
+        'Модель закончила ответ, не выдав ни одного символа — она не поняла '
+        'формат диалога. Попробуйте другую модель.',
+      );
+      return;
     }
 
     final after = await _contextTokens();
