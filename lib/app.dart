@@ -77,7 +77,7 @@ class FailedScreen extends StatelessWidget {
                   child: FilledButton(
                     onPressed: controller.bootstrap,
                     style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.violet,
+                      backgroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),

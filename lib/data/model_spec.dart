@@ -28,6 +28,8 @@ class ModelSpec {
     required this.url,
     required this.fileName,
     required this.minFreeRamBytes,
+    required this.hardFloorRamBytes,
+    required this.kvBytesPerToken,
     required this.speedHint,
     required this.summary,
     this.sha256,
@@ -44,14 +46,38 @@ class ModelSpec {
 
   final ModelTier tier;
 
-  /// Точный размер файла GGUF в байтах.
+  /// Размер файла в байтах.
   final int bytes;
 
   final String url;
   final String fileName;
 
-  /// Сколько свободной оперативной памяти нужно, чтобы не вылететь.
+  /// Сколько свободной оперативной памяти нужно, чтобы модель работала
+  /// без вылета.
+  ///
+  /// Важно: это НЕ равно размеру файла и НЕ равно размеру файла плюс
+  /// размер файла. llama.cpp открывает веса через mmap — они не копируются
+  /// в память, а подгружаются страницами по мере надобности, и ядро может
+  /// вытеснить неиспользуемые обратно в хранилище. Поэтому рабочий набор
+  /// заметно меньше размера модели.
+  ///
+  /// Формула: файл × 1,45 (запас на страницы графа и метаданные) +
+  /// 300 МБ (движок и вычислительные буферы).
   final int minFreeRamBytes;
+
+  /// Ниже этого объёма модель не запустится в принципе: не хватит памяти
+  /// даже на постраничную загрузку весов.
+  final int hardFloorRamBytes;
+
+  /// Сколько памяти занимает KV-кэш на ОДИН токен контекста.
+  ///
+  /// Зависит не от размения весов, а от числа слоёв и числа голов
+  /// внимания (KV), поэтому у моделей разного размера отношение разное.
+  /// Считается как `2 (ключ и значение) × слои × kv-головы × head_dim × 2 байта`
+  /// при f16. Отсюда же — ограничение контекста на телефоне: контекст
+  /// растёт линейно, и именно он чаще всего доводит модель до нехватки
+  /// памяти, а не сами веса.
+  final int kvBytesPerToken;
 
   /// Честная оценка скорости для телефона среднего класса.
   /// Показывается пользователю ДО скачивания — это защита от плохих отзывов.
@@ -70,7 +96,55 @@ class ModelSpec {
 }
 
 abstract final class ModelCatalog {
-  static const qwen3_0_6b = ModelSpec(
+  /// Накладные расходы помимо весов модели: движок, вычислительные буферы,
+  /// KV-кэш диалога.
+  static const _overheadBytes = 300 * 1024 * 1024;
+
+  /// Коэффициент запаса к файлу модели. Больше единицы, потому что не весь
+  /// файл живёт в памяти одновременно, но и не 1.0 — страницы графа,
+  /// метаданные и холодные страницы, которые система не успела вытеснить,
+  /// реально занимают место.
+  static const _weightFactor = 1.45;
+
+  /// Нижняя граница: столько нужно, чтобы процесс вообще стартовал.
+  /// Часть весов будет подгружена с диска по мере надобности.
+  static const _floorFactor = 0.55;
+  static const _floorOverheadBytes = 160 * 1024 * 1024;
+
+  static ModelSpec _spec({
+    required String id,
+    required String title,
+    required String params,
+    required ModelTier tier,
+    required int bytes,
+    required String url,
+    required String fileName,
+    required int kvBytesPerToken,
+    required String speedHint,
+    required String summary,
+  }) {
+    // minFree — комфортный запас, hardFloor — физический предел.
+    // Разница между ними и есть зона, где модель запустится, но может
+    // вытеснить другие приложения в подкачку.
+    final need = (bytes * _weightFactor).round() + _overheadBytes;
+    return ModelSpec(
+      id: id,
+      title: title,
+      params: params,
+      tier: tier,
+      bytes: bytes,
+      url: url,
+      fileName: fileName,
+      minFreeRamBytes: need,
+      hardFloorRamBytes:
+          (bytes * _floorFactor).round() + _floorOverheadBytes,
+      kvBytesPerToken: kvBytesPerToken,
+      speedHint: speedHint,
+      summary: summary,
+    );
+  }
+
+  static final qwen3_0_6b = _spec(
     id: 'qwen3-0.6b-q4km',
     title: 'Qwen3 0.6B',
     params: '0.6B',
@@ -78,14 +152,15 @@ abstract final class ModelCatalog {
     bytes: 396705472,
     url: 'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf',
     fileName: 'Qwen3-0.6B-Q4_K_M.gguf',
-    minFreeRamBytes: 2 * 1024 * 1024 * 1024,
+    // 28 слоёв, 2 KV-головы, head_dim 128: 2 × 28 × 2 × 128 × 2 = 28 672 Б
+    kvBytesPerToken: 28672,
     speedHint: '20–35 ток/с',
     summary:
         'Самая лёгкая. Быстрые короткие ответы, простая арифметика, '
         'переводы, определения. Длинные тексты и рассуждения — нет.',
   );
 
-  static const qwen3_1_7b = ModelSpec(
+  static final qwen3_1_7b = _spec(
     id: 'qwen3-1.7b-q4km',
     title: 'Qwen3 1.7B',
     params: '1.7B',
@@ -93,14 +168,15 @@ abstract final class ModelCatalog {
     bytes: 1107409472,
     url: 'https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf',
     fileName: 'Qwen3-1.7B-Q4_K_M.gguf',
-    minFreeRamBytes: 3 * 1024 * 1024 * 1024,
+    // 28 слоёв, 8 KV-голов, head_dim 128: 2 × 28 × 8 × 128 × 2 = 114 688 Б
+    kvBytesPerToken: 114688,
     speedHint: '8–18 ток/с',
     summary:
         'Рекомендуемая по умолчанию. Русский понимает заметно лучше мелких '
         'моделей, тянет объяснения, конспекты, короткие эссе и код.',
   );
 
-  static const qwen25_3b = ModelSpec(
+  static final qwen25_3b = _spec(
     id: 'qwen2.5-3b-q4km',
     title: 'Qwen2.5 3B',
     params: '3B',
@@ -108,7 +184,8 @@ abstract final class ModelCatalog {
     bytes: 2104932768,
     url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
     fileName: 'qwen2.5-3b-instruct-q4_k_m.gguf',
-    minFreeRamBytes: 4 * 1024 * 1024 * 1024,
+    // 36 слоёв, 2 KV-головы, head_dim 128: 2 × 36 × 2 × 128 × 2 = 36 864 Б
+    kvBytesPerToken: 36864,
     speedHint: '4–9 ток/с',
     summary:
         'Официальная модель Qwen, самая связная речь из доступных. Есть '
@@ -116,7 +193,7 @@ abstract final class ModelCatalog {
         'но на задачах вроде уравнений заметно меньше ошибок.',
   );
 
-  static const qwen3_4b = ModelSpec(
+  static final qwen3_4b = _spec(
     id: 'qwen3-4b-q4km',
     title: 'Qwen3 4B',
     params: '4B',
@@ -124,7 +201,8 @@ abstract final class ModelCatalog {
     bytes: 2497281312,
     url: 'https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
     fileName: 'Qwen3-4B-Q4_K_M.gguf',
-    minFreeRamBytes: 5 * 1024 * 1024 * 1024,
+    // 36 слоёв, 8 KV-голов, head_dim 128: 2 × 36 × 8 × 128 × 2 = 147 456 Б
+    kvBytesPerToken: 147456,
     speedHint: '2–6 ток/с',
     summary:
         'Максимум, что осмысленно тащить на телефон. Реально комфортно '
@@ -132,23 +210,83 @@ abstract final class ModelCatalog {
   );
 
   /// Порядок важен: от лёгкой к тяжёлой.
-  static const all = <ModelSpec>[qwen3_0_6b, qwen3_1_7b, qwen25_3b, qwen3_4b];
+  static final List<ModelSpec> all = [qwen3_0_6b, qwen3_1_7b, qwen25_3b, qwen3_4b];
 
-  static ModelSpec byId(String id) =>
-      all.firstWhere((m) => m.id == id, orElse: () => qwen3_1_7b);
+  static ModelSpec byId(String id) {
+    for (final m in all) {
+      if (m.id == id) return m;
+    }
+    return fallback;
+  }
 
   /// Модель по умолчанию.
-  static const fallback = qwen3_1_7b;
+  static ModelSpec get fallback => qwen3_1_7b;
 
-  /// Подбор по свободной оперативной памяти. Показываем максимум того,
-  /// что телефон потянет, но не прыгаем выше userPinned, если он задан.
+  /// Насколько модель подходит телефону с заданным объёмом свободной
+  /// памяти. Три уровня, а не два: раньше модель либо подходила, либо
+  /// блокировалась, и среднего случая не было — из-за этого телефон с
+  /// 1,6 ГБ свободной памяти не мог выбрать вообще ничего.
+  static ModelFit fitFor(ModelSpec spec, int freeRamBytes) {
+    if (freeRamBytes <= 0) return ModelFit.unknown;
+    if (freeRamBytes >= spec.minFreeRamBytes) return ModelFit.comfortable;
+    if (freeRamBytes >= spec.hardFloorRamBytes) return ModelFit.tight;
+    return ModelFit.impossible;
+  }
+
+  /// Можно ли нажать на карточку модели.
+  ///
+  /// Самая лёгкая модель нажимается всегда, даже когда памяти не хватает и
+  /// [fitFor] вернул [ModelFit.impossible]. Иначе на телефоне с очень малой
+  /// свободной памятью человек не мог выбрать вообще ничего — приложение
+  /// превращалось в пустой экран без единого действия. Лучше попробовать и
+  /// получить понятную ошибку с предложением более лёгкой модели, чем
+  /// получить тупик.
+  static bool isSelectable(ModelSpec spec, int freeRamBytes) =>
+      spec.id == all.first.id || fitFor(spec, freeRamBytes).canRun;
+
+  /// Лучшая модель для этого телефона. Если совсем ничего не подходит —
+  /// всё равно берём самую лёгкую: запрещать выбор бесполезно, человек
+  /// вправе рискнуть, а мы обязаны предупредить.
   static ModelSpec recommend(int freeRamBytes, {String? userPinned}) {
     if (userPinned != null) return byId(userPinned);
+    if (freeRamBytes <= 0) return fallback;
+
     ModelSpec? best;
     for (final m in all) {
       if (freeRamBytes >= m.minFreeRamBytes) best = m;
     }
     return best ?? all.first;
+  }
+
+  /// Ниже этого контекста диалог работает, но модель быстро забывает начало
+  /// разговора. Ниже не опускаемся ни при какой памяти.
+  static const minContext = 1024;
+
+  /// Шаг округления контекста. Модель просит размер кратным этому числу,
+  /// и промежуточные значения всё равно не дают выигрыша.
+  static const _contextStep = 256;
+
+  /// Какой контекст реально можно дать модели на этом телефоне.
+  ///
+  /// Это то, что делает приложение работоспособным на слабом железе вместо
+  /// того, чтобы упираться лбом в «нужно 4 ГБ оперативной памяти».
+  /// Жёсткий порог по памяти — плохое решение: пользователю нечем
+  /// ответить, он закрывает приложение. Лучше ужать контекст — пусть
+  /// модель хуже помнит начало диалога, зато отвечает.
+  ///
+  /// Считаем так: из свободной памяти вычитаем то, что нужно модели
+  /// помимо контекста (постранично подгруженные веса плюс движок),
+  /// остаток делим на стоимость одного токена контекста.
+  static int fitContext(ModelSpec spec, int freeRamBytes, int requested) {
+    if (freeRamBytes <= 0) return requested;
+
+    final fixedUse = (spec.bytes * _floorFactor).round() + _overheadBytes;
+    final spare = freeRamBytes - fixedUse;
+    if (spare <= 0) return minContext;
+
+    final affordable = (spare ~/ spec.kvBytesPerToken) ~/ _contextStep * _contextStep;
+    if (affordable >= requested) return requested;
+    return affordable < minContext ? minContext : affordable;
   }
 
   static String tierLabel(ModelTier tier) => switch (tier) {
@@ -157,4 +295,21 @@ abstract final class ModelCatalog {
     ModelTier.quality => 'Качественная',
     ModelTier.strong => 'Максимум',
   };
+}
+
+/// Насколько модель подходит телефону по свободной памяти.
+enum ModelFit {
+  /// Запас более чем достаточный.
+  comfortable,
+
+  /// Запустится, но может вытеснить другие приложения в подкачку.
+  tight,
+
+  /// Не хватит памяти даже на постраничную загрузку весов.
+  impossible,
+
+  /// Данные о памяти недоступны — судить не по чему.
+  unknown;
+
+  bool get canRun => this != ModelFit.impossible;
 }

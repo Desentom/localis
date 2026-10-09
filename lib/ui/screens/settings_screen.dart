@@ -17,6 +17,8 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final contextCeiling = _contextCeiling(controller);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -71,10 +73,16 @@ class SettingsScreen extends StatelessWidget {
           ),
           _Slider(
             title: 'Размер контекста',
-            hint: 'Сколько диалога модель помнит. Больше — больше памяти.',
-            value: controller.settings.contextSize.toDouble(),
+            hint: contextCeiling < 8192
+                ? 'Сейчас доступно не больше ${(contextCeiling / 1024).round()} тыс. '
+                      'токенов — столько помещается в свободную память телефона. '
+                      'Больше значит больше памяти.'
+                : 'Сколько диалога модель помнит. Больше — больше памяти.',
+            value: controller.settings.contextSize
+                .toDouble()
+                .clamp(1024.0, contextCeiling.toDouble()),
             min: 1024,
-            max: 8192,
+            max: contextCeiling.toDouble(),
             steps: 7,
             format: (v) => '${(v / 1024).round()} тыс. токенов',
             onChanged: (v) => controller.updateSettings(
@@ -104,6 +112,23 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// Максимальный контекст, который телефон потянет для текущей модели.
+///
+/// Ползунок не даёт выставить больше, чем реально влезает: иначе человек
+/// выставил бы 8 тысяч токенов, получил бы ужатый до 2 тысяч контекст и
+/// решил бы, что приложение не работает. Ограничение объяснено подписью.
+int _contextCeiling(AppController controller) {
+  const top = 8192;
+  final spec = controller.activeModel;
+  final free = controller.capability?.freeRamBytes ?? 0;
+  if (spec == null || free <= 0) return top;
+
+  final affordable = ModelCatalog.fitContext(spec, free, top);
+  // Шаг ползунка — 1024 токена, округляем вниз, чтобы ползунок не упирался.
+  final rounded = (affordable ~/ 1024) * 1024;
+  return rounded < 1024 ? 1024 : rounded;
+}
+
 class _StatusCard extends StatelessWidget {
   const _StatusCard({required this.controller});
 
@@ -128,7 +153,7 @@ class _StatusCard extends StatelessWidget {
                   gradient: AppColors.accent,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.white),
+                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.black),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -158,6 +183,13 @@ class _StatusCard extends StatelessWidget {
             _Row(
               label: 'Загрузка модели',
               value: formatDuration(outcome.loadedIn),
+            ),
+          if (outcome != null && outcome.contextShrunk)
+            _Row(
+              label: 'Контекст',
+              value:
+                  '${outcome.contextSize} вместо ${outcome.requestedContext} — '
+                  'не хватило памяти',
             ),
           _Row(
             label: 'Режим ответа',
@@ -243,7 +275,7 @@ class _ModelSwitcher extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Material(
-            color: active ? const Color(0x1A7C5CFF) : const Color(0x10FFFFFF),
+            color: active ? const Color(0x1AFFFFFF) : const Color(0x10FFFFFF),
             borderRadius: AppRadius.card,
             child: InkWell(
               borderRadius: AppRadius.card,
@@ -253,7 +285,7 @@ class _ModelSwitcher extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: AppRadius.card,
                   border: Border.all(
-                    color: active ? AppColors.violet : const Color(0x12FFFFFF),
+                    color: active ? Colors.white : const Color(0x12FFFFFF),
                   ),
                 ),
                 child: Row(
@@ -261,7 +293,7 @@ class _ModelSwitcher extends StatelessWidget {
                     Icon(
                       active ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
                       size: 19,
-                      color: active ? AppColors.violet : AppColors.textFaint,
+                      color: active ? Colors.white : AppColors.textFaint,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -352,10 +384,10 @@ class _PersonaSwitcher extends StatelessWidget {
             duration: const Duration(milliseconds: 160),
             padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
             decoration: BoxDecoration(
-              color: selected ? AppColors.violet.withValues(alpha: 0.22) : const Color(0x10FFFFFF),
+              color: selected ? Colors.white.withValues(alpha: 0.22) : const Color(0x10FFFFFF),
               borderRadius: AppRadius.chip,
               border: Border.all(
-                color: selected ? AppColors.violet : const Color(0x14FFFFFF),
+                color: selected ? Colors.white : const Color(0x14FFFFFF),
               ),
             ),
             child: Text(
@@ -412,7 +444,7 @@ class _ThinkModeTile extends StatelessWidget {
               controller.settings.copyWith(thinkMode: v),
             ),
             activeThumbColor: Colors.white,
-            activeTrackColor: AppColors.violet,
+            activeTrackColor: Colors.white,
           ),
         ],
       ),
@@ -459,7 +491,7 @@ class _Slider extends StatelessWidget {
                 format?.call(value) ?? value.toStringAsFixed(2).replaceAll('.', ','),
                 style: const TextStyle(
                   fontSize: 12.5,
-                  color: AppColors.cyan,
+                  color: Colors.white,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -572,13 +604,15 @@ class _SignInButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Логотип Google рисуем текстом — это допустимо и не тянет
-                // зависимость с картинками.
+                // зависимость с картинками. Буква чёрная: в приложении нет
+                // ни одного цветного пикселя, и синий «G» выбивался бы из
+                // оформления. Слово «Google» рядом всё равно читается.
                 Text(
                   'G',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF4285F4),
+                    color: Colors.black,
                   ),
                 ),
                 const SizedBox(width: 11),

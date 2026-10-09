@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localis/core/format.dart';
 import 'package:localis/data/chat_message.dart';
 import 'package:localis/data/chat_store.dart';
+import 'package:localis/data/chat_window.dart';
 import 'package:localis/data/model_spec.dart';
 import 'package:localis/services/device_capability.dart';
 import 'package:localis/services/engine_service.dart';
@@ -89,14 +90,19 @@ void main() {
 
   group('ModelCatalog', () {
     test('подбирает модель по свободной памяти', () {
-      // Мало памяти — только самая лёгкая.
+      // 2 ГБ свободно — помещается 1.7B, но не 3B.
       expect(
         ModelCatalog.recommend(2 * 1024 * 1024 * 1024).id,
-        ModelCatalog.qwen3_0_6b.id,
+        ModelCatalog.qwen3_1_7b.id,
       );
-      // 4 ГБ свободно — помещается 3B.
+      // 4 ГБ свободно — помещается и 3B, и 4B.
       expect(
         ModelCatalog.recommend(4 * 1024 * 1024 * 1024).id,
+        ModelCatalog.qwen3_4b.id,
+      );
+      // 3,5 ГБ свободно — помещается 3B, но не 4B.
+      expect(
+        ModelCatalog.recommend(3758096384).id,
         ModelCatalog.qwen25_3b.id,
       );
       // Много памяти — максимум каталога.
@@ -104,6 +110,120 @@ void main() {
         ModelCatalog.recommend(12 * 1024 * 1024 * 1024).id,
         ModelCatalog.qwen3_4b.id,
       );
+    });
+
+    test('самая лёгкая модель запускается даже на 1 ГБ свободной памяти', () {
+      // Регрессия из v0.1.0: порог для 0.6B стоял на 2 ГБ, и телефон
+      // с 1,6 ГБ свободной памяти не мог выбрать вообще ни одну модель —
+      // приложение становилось полностью нерабочим.
+      const free = 1 * 1024 * 1024 * 1024;
+      expect(ModelCatalog.recommend(free).id, ModelCatalog.qwen3_0_6b.id);
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, free), ModelFit.comfortable);
+    });
+
+    test('порог памяти держится около размера файла, а не вдвое больше', () {
+      // Регрессия из v0.1.0: для модели 3B (2,1 ГБ) требовалось 4 ГБ
+      // свободной памяти. С mmap веса не копируются в память целиком,
+      // поэтому порог обязан быть около размера файла плюс небольшая
+      // надбавка на движок. Формула зафиксирована: файл × 1,45 + 300 МБ.
+      const weightFactor = 1.45;
+      const overhead = 320 * 1024 * 1024;
+
+      for (final m in ModelCatalog.all) {
+        expect(
+          m.minFreeRamBytes,
+          lessThanOrEqualTo((m.bytes * weightFactor).round() + overhead),
+          reason: '${m.id}: порог памяти завышен',
+        );
+        expect(
+          m.minFreeRamBytes,
+          greaterThan(m.bytes),
+          reason: '${m.id}: с запасом на движок порог должен быть больше файла',
+        );
+        expect(
+          m.hardFloorRamBytes,
+          lessThan(m.minFreeRamBytes),
+          reason: '${m.id}: физический предел должен быть ниже комфортного порога',
+        );
+      }
+    });
+
+    test('модель впритык помечается как tight, а не блокируется', () {
+      // 1,5 ГБ свободно — ровно тот телефон, на котором всё было
+      // заблокировано в v0.1.0.
+      const free = 1610612736; // 1,5 ГиБ
+      final spec = ModelCatalog.qwen25_3b;
+      final fit = ModelCatalog.fitFor(spec, free);
+      expect(fit, ModelFit.tight, reason: 'выбор нельзя закрывать полностью');
+      expect(fit.canRun, isTrue);
+    });
+
+    test('при заведомо недостаточной памяти модель помечается невозможной', () {
+      expect(
+        ModelCatalog.fitFor(ModelCatalog.qwen3_4b, 64 * 1024 * 1024),
+        ModelFit.impossible,
+      );
+    });
+
+    test('при неизвестном объёме памяти модель не блокируется', () {
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, 0), ModelFit.unknown);
+      expect(ModelCatalog.fitFor(ModelCatalog.qwen3_0_6b, 0).canRun, isTrue);
+    });
+
+    test('самая лёгкая модель нажимается даже когда памяти совсем нет', () {
+      // Иначе на слабом телефоне получается экран, где нельзя нажать
+      // ни на одну карточку: тупик без единого действия.
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_0_6b, 64 * 1024 * 1024), isTrue);
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_4b, 64 * 1024 * 1024), isFalse);
+      expect(ModelCatalog.isSelectable(ModelCatalog.qwen3_1_7b, 8 * 1024 * 1024 * 1024), isTrue);
+    });
+
+    test('контекст ужимается под память, а не приводит к отказу', () {
+      // Телефон из первого отчёта: 3,8 ГБ всего, 1,6 ГБ свободно.
+      const free = 1717986918;
+
+      // Лёгкая модель при такой памяти получает запрошенный контекст целиком.
+      expect(
+        ModelCatalog.fitContext(ModelCatalog.qwen3_0_6b, free, 4096),
+        4096,
+      );
+
+      // Тяжёлая модель запускается с уменьшенным контекстом вместо отказа.
+      final shrunk = ModelCatalog.fitContext(ModelCatalog.qwen3_4b, free, 4096);
+      expect(shrunk, lessThan(4096));
+      expect(shrunk, greaterThanOrEqualTo(ModelCatalog.minContext));
+    });
+
+    test('контекст не опускается ниже минимума ни при какой памяти', () {
+      for (final m in ModelCatalog.all) {
+        expect(
+          ModelCatalog.fitContext(m, 1, 4096),
+          ModelCatalog.minContext,
+          reason: m.id,
+        );
+      }
+    });
+
+    test('контекст всегда кратен шагу и не больше запрошенного', () {
+      const free = 1400000000;
+      for (final m in ModelCatalog.all) {
+        for (final requested in [1024, 2048, 4096, 8192]) {
+          final c = ModelCatalog.fitContext(m, free, requested);
+          expect(c, lessThanOrEqualTo(requested), reason: m.id);
+          expect(c % 256, 0, reason: '${m.id}: контекст должен быть кратен 256');
+          expect(c, greaterThanOrEqualTo(ModelCatalog.minContext), reason: m.id);
+        }
+      }
+    });
+
+    test('при неизвестной памяти контекст остаётся как запрошено', () {
+      expect(ModelCatalog.fitContext(ModelCatalog.qwen3_0_6b, 0, 8192), 8192);
+    });
+
+    test('размер KV-кэша на токен у всех моделей положителен', () {
+      for (final m in ModelCatalog.all) {
+        expect(m.kvBytesPerToken, greaterThan(0), reason: m.id);
+      }
     });
 
     test('явный выбор пользователя важнее рекомендации', () {
@@ -133,6 +253,69 @@ void main() {
         expect(m.minFreeRamBytes, greaterThan(m.bytes), reason: '${m.id}: память должна быть больше файла');
         expect(m.speedHint, isNotEmpty, reason: m.id);
       }
+    });
+  });
+
+  group('ChatWindow', () {
+    List<ChatMessage> dialogue(int pairs, {int len = 200}) => [
+      for (var i = 0; i < pairs; i++) ...[
+        ChatMessage(role: Role.user, text: 'вопрос $i ' * (len ~/ 9)),
+        ChatMessage(role: Role.assistant, text: 'ответ $i ' * (len ~/ 7)),
+      ],
+    ];
+
+    test('пустая история остаётся пустой', () {
+      expect(ChatWindow.trim(history: const [], contextTokens: 4096, reserveTokens: 512), isEmpty);
+    });
+
+    test('короткая история проходит целиком', () {
+      final h = dialogue(2);
+      expect(
+        ChatWindow.trim(history: h, contextTokens: 4096, reserveTokens: 512),
+        hasLength(h.length),
+      );
+    });
+
+    test('длинная история укорачивается с конца под контекст', () {
+      final h = dialogue(60);
+      final trimmed = ChatWindow.trim(
+        history: h,
+        contextTokens: 1024,
+        reserveTokens: 512,
+      );
+
+      expect(trimmed, isNotEmpty);
+      expect(trimmed.length, lessThan(h.length));
+      // Последнее сообщение — это текущий вопрос, он обязан уцелеть.
+      expect(trimmed.last.text, h.last.text);
+      // Начинаться должно с реплики человека, а не с ответа модели.
+      expect(trimmed.first.isUser, isTrue);
+    });
+
+    test('при совсем крошечном контексте остаётся хотя бы текущий вопрос', () {
+      final h = dialogue(5);
+      final trimmed = ChatWindow.trim(
+        history: h,
+        contextTokens: 64,
+        reserveTokens: 512,
+      );
+      expect(trimmed, hasLength(1));
+      expect(trimmed.single.text, h.last.text);
+    });
+
+    test('вычисленный размер не превышает бюджет контекста', () {
+      final h = dialogue(40);
+      const context = 2048;
+      const reserve = 400;
+      final trimmed = ChatWindow.trim(
+        history: h,
+        contextTokens: context,
+        reserveTokens: reserve,
+      );
+
+      final budgetChars = (context - reserve - ChatWindow.promptReserve) * ChatWindow.charsPerToken;
+      final used = trimmed.fold<int>(0, (s, m) => s + m.text.length + 8);
+      expect(used, lessThanOrEqualTo(budgetChars));
     });
   });
 

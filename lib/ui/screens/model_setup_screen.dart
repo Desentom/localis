@@ -12,9 +12,8 @@ import 'splash_screen.dart';
 
 /// Экран выбора и скачивания модели.
 ///
-/// Это главный экран конверсии. Его задача — честно объяснить, что человек
-/// получит, ДО того как потратит два гигабайтра трафика. Расхождение между
-/// ожиданием и реальностью здесь — основной источник плохих отзывов.
+/// Главный экран конверсии. Его задача — честно объяснить, что человек
+/// получит, ДО того как потратит два гигабайта трафика.
 class ModelSetupScreen extends StatelessWidget {
   const ModelSetupScreen({required this.controller, super.key});
 
@@ -46,21 +45,18 @@ class _PickerView extends StatelessWidget {
   Widget build(BuildContext context) {
     final cap = controller.capability;
     final recommended = controller.recommendedModel;
+    final freeRam = cap?.freeRamBytes ?? 0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
         const OfflineBadge(),
         const SizedBox(height: 16),
-        Text(
-          'Выберите модель',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
+        Text('Выберите модель', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 8),
         const Text(
           'Она скачивается один раз и остаётся на телефоне. '
-          'После этого интернет не нужен никогда — вопросы, ответы и '
-          'домашняя работа идут внутри самого устройства.',
+          'После этого интернет не нужен никогда.',
           style: TextStyle(color: AppColors.textSecondary, height: 1.5),
         ),
         const SizedBox(height: 22),
@@ -76,11 +72,8 @@ class _PickerView extends StatelessWidget {
               installed: controller.installed.containsKey(spec.id),
               active: controller.activeModel?.id == spec.id,
               recommended: spec.id == recommended.id,
-              insufficientRam:
-                  cap != null &&
-                  cap.freeRamBytes > 0 &&
-                  cap.freeRamBytes < spec.minFreeRamBytes,
-              freeRam: cap?.freeRamBytes ?? 0,
+              fit: ModelCatalog.fitFor(spec, freeRam),
+              freeRam: freeRam,
               onTap: () => _confirm(context, spec),
             ),
           ),
@@ -100,7 +93,11 @@ class _PickerView extends StatelessWidget {
       final ok = await showModalBottomSheet<bool>(
         context: context,
         backgroundColor: Colors.transparent,
-        builder: (ctx) => _ConfirmSheet(spec: spec),
+        builder: (ctx) => _ConfirmSheet(
+          spec: spec,
+          fit: ModelCatalog.fitFor(spec, controller.capability?.freeRamBytes ?? 0),
+          freeRam: controller.capability?.freeRamBytes ?? 0,
+        ),
       );
       if (ok != true || !context.mounted) return;
     }
@@ -120,15 +117,19 @@ class _DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final freeRam = capability.freeRamBytes;
-    return GlassCard(
+    return Container(
       padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppSurfaces.card,
+        borderRadius: AppRadius.card,
+        border: Border.all(color: AppSurfaces.border),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.memory_rounded, size: 17, color: AppColors.cyan),
+              const Icon(Icons.memory_rounded, size: 17, color: Colors.white),
               const SizedBox(width: 8),
               const Text(
                 'Ваш телефон',
@@ -140,7 +141,9 @@ class _DeviceCard extends StatelessWidget {
                 icon: capability.vulkanSupported
                     ? Icons.bolt_rounded
                     : Icons.developer_board_rounded,
-                color: capability.vulkanSupported ? AppColors.mint : AppColors.textFaint,
+                color: capability.vulkanSupported
+                    ? AppColors.textPrimary
+                    : AppColors.textFaint,
               ),
             ],
           ),
@@ -150,10 +153,10 @@ class _DeviceCard extends StatelessWidget {
             '${capability.totalRamBytes > 0 ? formatBytes(capability.totalRamBytes, decimals: 1) : '?'} оперативной памяти',
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
-          if (freeRam > 0) ...[
+          if (capability.freeRamBytes > 0) ...[
             const SizedBox(height: 4),
             Text(
-              'Свободно ${formatBytes(freeRam, decimals: 1)} — закрыйте пару приложений, если нужно больше',
+              'Свободно сейчас ${formatBytes(capability.freeRamBytes, decimals: 2)}',
               style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
             ),
           ],
@@ -176,7 +179,7 @@ class _ModelCard extends StatelessWidget {
     required this.installed,
     required this.active,
     required this.recommended,
-    required this.insufficientRam,
+    required this.fit,
     required this.freeRam,
     required this.onTap,
   });
@@ -185,116 +188,189 @@ class _ModelCard extends StatelessWidget {
   final bool installed;
   final bool active;
   final bool recommended;
-  final bool insufficientRam;
+  final ModelFit fit;
   final int freeRam;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final blocked = insufficientRam && !installed;
+    // Блокируем только когда памяти не хватит физически. Раньше здесь стоял
+    // запрет на любой модели, у которой не хватало комфортного запаса, —
+    // из-за этого телефон с 1,6 ГБ свободной памяти не мог выбрать вообще
+    // ничего, даже самую лёгкую модель. Теперь выбор открыт всегда,
+    // и тупика «не нажимается ни одна карточка» не существует.
+    final blocked = !ModelCatalog.isSelectable(spec, freeRam);
 
-    return GlassCard(
-      onTap: blocked ? null : onTap,
-      borderColor: recommended && !active
-          ? AppColors.violet.withValues(alpha: 0.55)
-          : const Color(0x1FFFFFFF),
-      padding: const EdgeInsets.all(15),
-      child: Opacity(
-        opacity: blocked ? 0.55 : 1.0,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  spec.title,
-                  style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 7),
-                Pill(
-                  label: ModelCatalog.tierLabel(spec.tier),
-                  color: AppColors.textFaint,
-                  dense: true,
-                ),
-                const Spacer(),
-                if (active)
-                  const Pill(
-                    label: 'Загружена',
-                    icon: Icons.check_circle_rounded,
-                    color: AppColors.mint,
-                    dense: true,
-                  )
-                else if (installed)
-                  const Pill(
-                    label: 'Скачана',
-                    icon: Icons.download_done_rounded,
-                    color: AppColors.textSecondary,
-                    dense: true,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _MetaChip(
-                  icon: Icons.save_alt_rounded,
-                  label: formatBytes(spec.bytes),
-                ),
-                const SizedBox(width: 8),
-                _MetaChip(icon: Icons.speed_rounded, label: spec.speedHint),
-                const SizedBox(width: 8),
-                _MetaChip(
-                  icon: Icons.sd_storage_rounded,
-                  label: 'нужно ${formatBytes(spec.minFreeRamBytes, decimals: 0)} ОЗУ',
-                ),
-              ],
-            ),
-            const SizedBox(height: 11),
-            Text(
-              spec.summary,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12.8,
-                height: 1.45,
+    return Opacity(
+      opacity: blocked ? 0.5 : 1.0,
+      child: Material(
+        color: active ? AppSurfaces.cardRaised : AppSurfaces.card,
+        borderRadius: AppRadius.card,
+        child: InkWell(
+          onTap: blocked ? null : onTap,
+          borderRadius: AppRadius.card,
+          child: Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.card,
+              border: Border.all(
+                color: active
+                    ? Colors.white
+                    : recommended
+                    ? AppSurfaces.borderStrong
+                    : AppSurfaces.border,
+                width: active ? 1.5 : 1,
               ),
             ),
-            if (recommended && !active) ...[
-              const SizedBox(height: 11),
-              const Row(
-                children: [
-                  Icon(Icons.star_rounded, size: 15, color: AppColors.violet),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Подходит для этого телефона',
-                      style: TextStyle(
-                        color: AppColors.violet,
-                        fontSize: 12.5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      spec.title,
+                      style: const TextStyle(
+                        fontSize: 16.5,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
-            if (blocked) ...[
-              const SizedBox(height: 11),
-              Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, size: 15, color: AppColors.warning),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Свободно только ${formatBytes(freeRam, decimals: 1)} — '
-                      'модель будет вылетать. Сначала освободите память.',
-                      style: const TextStyle(color: AppColors.warning, fontSize: 12),
+                    const SizedBox(width: 7),
+                    Pill(
+                      label: ModelCatalog.tierLabel(spec.tier),
+                      color: AppColors.textFaint,
+                      dense: true,
                     ),
+                    const Spacer(),
+                    if (active)
+                      const Pill(
+                        label: 'Загружена',
+                        icon: Icons.check_circle_rounded,
+                        color: Colors.white,
+                        dense: true,
+                      )
+                    else if (installed)
+                      const Pill(
+                        label: 'Скачана',
+                        icon: Icons.download_done_rounded,
+                        color: AppColors.textSecondary,
+                        dense: true,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 4,
+                  children: [
+                    _MetaChip(
+                      icon: Icons.save_alt_rounded,
+                      label: formatBytes(spec.bytes),
+                    ),
+                    _MetaChip(
+                      icon: Icons.speed_rounded,
+                      label: spec.speedHint,
+                    ),
+                    _MetaChip(
+                      icon: Icons.memory_rounded,
+                      label: 'нужно ${formatBytes(spec.minFreeRamBytes, decimals: 1)}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 11),
+                Text(
+                  spec.summary,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12.8,
+                    height: 1.45,
+                  ),
+                ),
+                if (recommended && !active) ...[
+                  const SizedBox(height: 11),
+                  const Row(
+                    children: [
+                      Icon(Icons.star_rounded, size: 15, color: Colors.white),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Лучший выбор для этого телефона',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
-              ),
-            ],
-          ],
+                if (fit == ModelFit.tight && !active) ...[
+                  const SizedBox(height: 11),
+                  _Note(
+                    icon: Icons.info_outline_rounded,
+                    text:
+                        'Памяти впритык: свободно '
+                        '${formatBytes(freeRam, decimals: 1)}, нужно около '
+                        '${formatBytes(spec.minFreeRamBytes, decimals: 1)}. '
+                        'Закройте пару приложений — иначе система начнёт '
+                        'выгружать память в диск, и ответы замедлятся.',
+                  ),
+                ],
+                if (fit == ModelFit.impossible) ...[
+                  const SizedBox(height: 11),
+                  _Note(
+                    icon: Icons.block_rounded,
+                    text: spec.id == ModelCatalog.all.first.id
+                        ? 'Свободно ${formatBytes(freeRam, decimals: 1)} — это мало '
+                              'даже для самой лёгкой модели. Закройте приложения '
+                              'на телефоне и попробуйте снова. Если не поможет — '
+                              'модель можно скачать, а запустить позже.'
+                        : 'Свободно ${formatBytes(freeRam, decimals: 1)} — для этой '
+                              'модели нужно не меньше '
+                              '${formatBytes(spec.hardFloorRamBytes, decimals: 1)}. '
+                              'Возьмите модель поменьше или закройте приложения.',
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _Note extends StatelessWidget {
+  const _Note({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131313),
+        borderRadius: AppRadius.chip,
+        border: Border.all(color: AppSurfaces.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11.8,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -335,14 +411,14 @@ class _HonestyNote extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.07),
+        color: AppSurfaces.card,
         borderRadius: AppRadius.card,
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.22)),
+        border: Border.all(color: AppSurfaces.border),
       ),
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline_rounded, size: 16, color: AppColors.warning),
+          Icon(Icons.info_outline_rounded, size: 16, color: AppColors.textSecondary),
           SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -366,17 +442,23 @@ class _HonestyNote extends StatelessWidget {
 // --- Подтверждение скачивания ----------------------------------------------
 
 class _ConfirmSheet extends StatelessWidget {
-  const _ConfirmSheet({required this.spec});
+  const _ConfirmSheet({
+    required this.spec,
+    required this.fit,
+    required this.freeRam,
+  });
 
   final ModelSpec spec;
+  final ModelFit fit;
+  final int freeRam;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppColors.bgElevated,
+        color: AppColors.surface,
         borderRadius: AppRadius.sheet,
-        border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+        border: Border(top: BorderSide(color: AppSurfaces.border)),
       ),
       padding: const EdgeInsets.fromLTRB(22, 12, 22, 28),
       child: SafeArea(
@@ -390,7 +472,7 @@ class _ConfirmSheet extends StatelessWidget {
                 width: 38,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0x33FFFFFF),
+                  color: AppSurfaces.borderStrong,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -403,12 +485,28 @@ class _ConfirmSheet extends StatelessWidget {
               'продолжится с того же места.',
               style: const TextStyle(color: AppColors.textSecondary, height: 1.45),
             ),
+            if (fit == ModelFit.tight) ...[
+              const SizedBox(height: 14),
+              const _Note(
+                icon: Icons.info_outline_rounded,
+                text: 'Памяти немного. Модель запустится, но при ответе '
+                    'телефон может подтормаживать — это нормально.',
+              ),
+            ],
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 14,
+              runSpacing: 6,
               children: [
                 _MetaChip(icon: Icons.speed_rounded, label: spec.speedHint),
-                const SizedBox(width: 10),
-                _MetaChip(icon: Icons.alternate_email_rounded, label: 'платно 0 ₽'),
+                _MetaChip(
+                  icon: Icons.memory_rounded,
+                  label: 'нужно ${formatBytes(spec.minFreeRamBytes, decimals: 1)}',
+                ),
+                const _MetaChip(
+                  icon: Icons.alternate_email_rounded,
+                  label: 'бесплатно',
+                ),
               ],
             ),
             const SizedBox(height: 22),
@@ -422,8 +520,13 @@ class _ConfirmSheet extends StatelessWidget {
               width: double.infinity,
               child: TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                child: const Text('Отмена', style: TextStyle(color: AppColors.textSecondary)),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text(
+                  'Отмена',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
               ),
             ),
           ],
@@ -464,7 +567,7 @@ class _DownloadView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.memory_rounded, size: 54, color: AppColors.cyan),
+            const Icon(Icons.memory_rounded, size: 54, color: Colors.white),
             const SizedBox(height: 22),
             Text(
               verifying ? 'Проверяем файл' : 'Скачиваем модель',
@@ -483,9 +586,9 @@ class _DownloadView extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
                 value: progress == 0 ? null : progress,
-                minHeight: 9,
-                backgroundColor: const Color(0x1FFFFFFF),
-                valueColor: const AlwaysStoppedAnimation(AppColors.cyan),
+                minHeight: 6,
+                backgroundColor: const Color(0x22FFFFFF),
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
               ),
             ),
             const SizedBox(height: 14),
@@ -499,7 +602,12 @@ class _DownloadView extends StatelessWidget {
               Text(
                 controller.error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13, height: 1.4),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
             const SizedBox(height: 24),
@@ -522,7 +630,11 @@ class _LoadingView extends StatelessWidget {
 
   final AppController controller;
 
-  static const _stageIcons = [Icons.storage_rounded, Icons.memory_rounded, Icons.forum_rounded];
+  static const _stageIcons = [
+    Icons.storage_rounded,
+    Icons.memory_rounded,
+    Icons.forum_rounded,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -535,18 +647,12 @@ class _LoadingView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const SizedBox(
-              width: 42,
-              height: 42,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation(AppColors.violet),
-              ),
+              width: 34,
+              height: 34,
+              child: CircularProgressIndicator(strokeWidth: 2.4),
             ),
             const SizedBox(height: 24),
-            Text(
-              'Запускаем модель',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('Запускаем модель', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 20),
             ...List.generate(EngineService.loadStages.length, (i) {
               final done = i < stage;
@@ -558,10 +664,8 @@ class _LoadingView extends StatelessWidget {
                     Icon(
                       done ? Icons.check_circle_rounded : _stageIcons[i.clamp(0, 2)],
                       size: 18,
-                      color: done
-                          ? AppColors.mint
-                          : active
-                          ? AppColors.violet
+                      color: done || active
+                          ? Colors.white
                           : AppColors.textFaint,
                     ),
                     const SizedBox(width: 12),
@@ -591,7 +695,12 @@ class _LoadingView extends StatelessWidget {
               Text(
                 controller.error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13, height: 1.4),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 18),
               TextButton.icon(

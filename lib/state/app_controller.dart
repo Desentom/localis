@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import '../core/format.dart';
 import '../data/chat_message.dart';
 import '../data/chat_store.dart';
+import '../data/chat_window.dart';
 import '../data/model_spec.dart';
 import '../data/personas.dart';
 import '../data/settings_store.dart';
@@ -95,6 +97,11 @@ class AppController extends ChangeNotifier {
     return ModelCatalog.recommend(ram, userPinned: _settings.modelId);
   }
 
+  /// Контекст, который реально выдан движку: запрошенный, если памяти
+  /// хватило, и ужатый под память — если нет.
+  int get effectiveContextSize =>
+      _loadOutcome?.contextSize ?? _settings.contextSize;
+
   /// Запуск приложения. Никогда не бросает — на любой сбой переходим
   /// в [AppPhase.failed] с понятным текстом.
   Future<void> bootstrap() async {
@@ -149,10 +156,20 @@ class AppController extends ChangeNotifier {
     try {
       final path = await downloader.targetPath(spec);
       final cap = _capability;
+      // Памяти может не хватить на запрошенный контекст диалога. Не
+      // отказываем в запуске — ужимаем контекст до того, что телефон
+      // действительно потянет. Лучше модель, которая помнит меньше, чем
+      // сообщение «не хватает памяти».
+      final context = ModelCatalog.fitContext(
+        spec,
+        cap?.freeRamBytes ?? 0,
+        _settings.contextSize,
+      );
       _loadOutcome = await engine.loadFromPath(
         spec,
         path,
-        contextSize: _settings.contextSize,
+        contextSize: context,
+        requestedContext: _settings.contextSize,
         threads: cap?.cores ?? 4,
         gpuLayers: resolveGpuLayers(
           cap ?? const DeviceCapability(
@@ -316,16 +333,28 @@ class AppController extends ChangeNotifier {
     final startedAt = DateTime.now();
     GenerationStats? finalStats;
 
+    // Ответ не должен занимать весь контекст: место нужно ещё на вопрос
+    // и историю диалога. На ужатом под память контексте запрошенная
+    // длина ответа была бы просто невозможной.
+    final answerTokens = min(
+      _settings.maxTokens,
+      max(256, (effectiveContextSize * 0.6).round()),
+    );
+
     try {
       final stream = engine.streamAnswer(
         spec: model,
-        history: _session.messages,
+        history: ChatWindow.trim(
+          history: _session.messages,
+          contextTokens: effectiveContextSize,
+          reserveTokens: answerTokens,
+        ),
         systemPrompt: systemPrompt,
         temperature: _settings.temperature,
         topP: _settings.topP,
         topK: _settings.topK,
         repeatPenalty: _settings.repeatPenalty,
-        maxTokens: _settings.maxTokens,
+        maxTokens: answerTokens,
       );
 
       await for (final event in stream) {

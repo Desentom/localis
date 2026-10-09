@@ -76,13 +76,24 @@ class LoadOutcome {
     required this.spec,
     required this.loadedIn,
     required this.gpuLayers,
+    required this.contextSize,
+    required this.requestedContext,
   });
 
   final ModelSpec spec;
   final Duration loadedIn;
   final int gpuLayers;
 
+  /// Контекст, который реально выдан движку.
+  final int contextSize;
+
+  /// Контекст, который был запрошен в настройках. Если он не равен
+  /// [contextSize], памяти не хватило и мы ужали контекст — об этом
+  /// честно говорим в интерфейсе.
+  final int requestedContext;
+
   bool get usedGpu => gpuLayers > 0;
+  bool get contextShrunk => contextSize < requestedContext;
 }
 
 /// Обёртка над нативным движком.
@@ -117,6 +128,7 @@ class EngineService {
     ModelSpec spec,
     String path, {
     required int contextSize,
+    int? requestedContext,
     required int threads,
     required int gpuLayers,
     void Function(int stage)? onStage,
@@ -146,6 +158,8 @@ class EngineService {
       spec: spec,
       loadedIn: DateTime.now().difference(started),
       gpuLayers: gpuLayers,
+      contextSize: contextSize,
+      requestedContext: requestedContext ?? contextSize,
     );
     _loaded = spec;
     return outcome;

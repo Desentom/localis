@@ -185,7 +185,7 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
               gradient: AppColors.accent,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.memory_rounded, size: 18, color: Colors.white),
+            child: const Icon(Icons.memory_rounded, size: 18, color: Colors.black),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -263,13 +263,13 @@ class _EmptyState extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.violet.withValues(alpha: 0.35),
-                  blurRadius: 28,
+                  color: Colors.white.withValues(alpha: 0.16),
+                  blurRadius: 26,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
-            child: const Icon(Icons.memory_rounded, size: 31, color: Colors.white),
+            child: const Icon(Icons.memory_rounded, size: 31, color: Colors.black),
           ),
         ),
         const SizedBox(height: 18),
@@ -311,7 +311,7 @@ class _SuggestionTile extends StatelessWidget {
       borderRadius: AppRadius.chip,
       child: Row(
         children: [
-          const Icon(Icons.arrow_outward_rounded, size: 15, color: AppColors.cyan),
+          const Icon(Icons.arrow_outward_rounded, size: 15, color: Colors.white),
           const SizedBox(width: 11),
           Expanded(
             child: Text(
@@ -355,10 +355,10 @@ class _PersonaBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: selected ? AppColors.violet.withValues(alpha: 0.22) : const Color(0x10FFFFFF),
+                color: selected ? Colors.white.withValues(alpha: 0.22) : const Color(0x10FFFFFF),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: selected ? AppColors.violet : const Color(0x14FFFFFF),
+                  color: selected ? Colors.white : const Color(0x14FFFFFF),
                 ),
               ),
               child: Text(
@@ -449,7 +449,7 @@ class _ComposerState extends State<_Composer> {
                   onSubmitted: (_) => widget.onSend(),
                   keyboardType: TextInputType.multiline,
                   style: const TextStyle(fontSize: 15, height: 1.4),
-                  cursorColor: AppColors.cyan,
+                  cursorColor: Colors.white,
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     isDense: true,
@@ -504,7 +504,7 @@ class _SendButton extends StatelessWidget {
         ),
         child: Icon(
           generating ? Icons.stop_rounded : Icons.arrow_upward_rounded,
-          color: active ? Colors.white : AppColors.textFaint,
+          color: active ? Colors.black : AppColors.textFaint,
           size: 22,
         ),
       ),

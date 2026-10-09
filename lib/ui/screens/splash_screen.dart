@@ -23,7 +23,7 @@ class SplashScreen extends StatelessWidget {
               height: 26,
               child: CircularProgressIndicator(
                 strokeWidth: 2.4,
-                valueColor: AlwaysStoppedAnimation(AppColors.cyan),
+                valueColor: AlwaysStoppedAnimation(Colors.white),
               ),
             ),
             const SizedBox(height: 18),
@@ -61,13 +61,13 @@ class _Logo extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: AppColors.violet.withValues(alpha: 0.42),
-                blurRadius: 34,
-                offset: const Offset(0, 10),
+                color: Colors.white.withValues(alpha: 0.18),
+                blurRadius: 30,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
-          child: const Icon(Icons.memory_rounded, size: 38, color: Colors.white),
+          child: const Icon(Icons.memory_rounded, size: 38, color: Colors.black),
         ),
         const SizedBox(height: 18),
         const Text(
@@ -102,13 +102,13 @@ class OfflineBadge extends StatelessWidget {
         Icon(
           Icons.wifi_off_rounded,
           size: compact ? 13 : 15,
-          color: AppColors.mint.withValues(alpha: 0.9),
+          color: Colors.white.withValues(alpha: 0.9),
         ),
         SizedBox(width: compact ? 5 : 7),
         Text(
           compact ? 'Без сети' : 'Полностью на вашем телефоне · без сети',
           style: TextStyle(
-            color: AppColors.mint.withValues(alpha: 0.9),
+            color: Colors.white.withValues(alpha: 0.9),
             fontSize: compact ? 11 : 12.5,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,

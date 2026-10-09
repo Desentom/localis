@@ -1,15 +1,1 @@
-﻿Localis v0.1.0
-Файл:    localis-v0.1.0-arm64.apk
-Размер:  24.5 МБ
-SHA256:  4e33f6bdd27c5f100a3c5d624bc412ae7e224108de880665a7053d02b7c31cee
-
-Проверка целостности (PowerShell):
-  Get-FileHash .\localis-v0.1.0-arm64.apk -Algorithm SHA256
-
-Проверка целостности (cmd):
-  certutil -hashfile localis-v0.1.0-arm64.apk SHA256
-
-Проверка подписи (нужен apksigner из Android SDK):
-  apksigner verify --print-certs localis-v0.1.0-arm64.apk
-  Ожидаемый отпечаток:
-  15e1fe42fc970eec09e2d560e2598162dd6226b57cb2d592b1a2cbd5badb464a
+9252a5c74310346ce438f359baf355cef8ccb30bcae3190d4a6205b67d9a2d58

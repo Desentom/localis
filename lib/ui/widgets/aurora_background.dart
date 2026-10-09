@@ -1,17 +1,17 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 
-/// Живой градиентный фон.
+/// Фон приложения.
 ///
-/// Важное решение: размытие сделано НЕ через [ImageFilter.blur] на весь
-/// экран, а через мягкие радиальные градиенты. На среднем телефоне реальный
-/// blur съедает 15–25 кадров в секунду — а плавность интерфейса здесь
-/// продающая фича.
+/// Раньше здесь был градиент из трёх цветных пятен. Сейчас — тот же приём,
+/// но в оттенках серого и всего два пятна вместо трёх. Причина не только в
+/// требовании монохрома: лишние радиальные градиенты — это лишняя работа
+/// GPU каждый кадр, а на телефоне с 3–4 ГБ оперативной памяти плавность
+/// интерфейса обменивается прямо на отзывы.
 class AuroraBackground extends StatefulWidget {
   const AuroraBackground({required this.child, super.key});
 
@@ -44,7 +44,7 @@ class _AuroraBackgroundState extends State<AuroraBackground>
             child: AnimatedBuilder(
               animation: _c,
               builder: (context, _) => CustomPaint(
-                painter: _AuroraPainter(_c.value),
+                painter: _GreyGlowPainter(_c.value),
                 willChange: true,
               ),
             ),
@@ -56,16 +56,17 @@ class _AuroraBackgroundState extends State<AuroraBackground>
   }
 }
 
-class _AuroraPainter extends CustomPainter {
-  _AuroraPainter(this.t);
+/// Плавное серое свечение. Контраст намеренно низкий: фон должен читаться
+/// как глубина, а не как украшение, и не спорить с текстом.
+class _GreyGlowPainter extends CustomPainter {
+  _GreyGlowPainter(this.t);
 
   /// 0..1, полный цикл анимации.
   final double t;
 
   static const _blobs = <_Blob>[
-    _Blob(color: AppColors.violet, radiusFactor: 0.95, phase: 0.00, speed: 1.00),
-    _Blob(color: AppColors.cyan, radiusFactor: 0.78, phase: 0.35, speed: 0.70),
-    _Blob(color: Color(0xFF4C3BCF), radiusFactor: 0.62, phase: 0.68, speed: 0.45),
+    _Blob(alpha: 0.055, radiusFactor: 0.95, phase: 0.00, speed: 1.00),
+    _Blob(alpha: 0.032, radiusFactor: 0.72, phase: 0.42, speed: 0.62),
   ];
 
   @override
@@ -77,16 +78,16 @@ class _AuroraPainter extends CustomPainter {
       // Блубы ходят по эллипсу, а не по кругу — движение выглядит
       // естественнее и не выдаёт себя идеальной симметрией.
       final center = Offset(
-        size.width * (0.5 + 0.40 * math.cos(angle)),
-        size.height * (0.30 + 0.28 * math.sin(angle * 0.8 + b.phase)),
+        size.width * (0.5 + 0.38 * math.cos(angle)),
+        size.height * (0.28 + 0.26 * math.sin(angle * 0.8 + b.phase)),
       );
       final radius = size.shortestSide * b.radiusFactor;
 
       paint.shader = RadialGradient(
         colors: [
-          b.color.withValues(alpha: 0.28),
-          b.color.withValues(alpha: 0.09),
-          b.color.withValues(alpha: 0.0),
+          Colors.white.withValues(alpha: b.alpha),
+          Colors.white.withValues(alpha: b.alpha * 0.35),
+          Colors.white.withValues(alpha: 0.0),
         ],
         stops: const [0.0, 0.45, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: radius));
@@ -96,25 +97,27 @@ class _AuroraPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_AuroraPainter old) => old.t != t;
+  bool shouldRepaint(_GreyGlowPainter old) => old.t != t;
 }
 
 class _Blob {
   const _Blob({
-    required this.color,
+    required this.alpha,
     required this.radiusFactor,
     required this.phase,
     required this.speed,
   });
 
-  final Color color;
+  final double alpha;
   final double radiusFactor;
   final double phase;
   final double speed;
 }
 
-/// Матовое стекло. Размытие включается точечно и только на карточках,
-/// где это читается, а не на всём экране.
+/// Карточка. Раньше здесь было [BackdropFilter] с размытием на 14 пикселей —
+/// оно брало с телефона заметную часть кадрового бюджета. Заменено на
+/// сплошную заливку: на чёрном фоне размытие не даёт видимого эффекта,
+/// а стоит реальных кадров.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     required this.child,
@@ -122,7 +125,7 @@ class GlassCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(16),
     this.borderRadius = AppRadius.card,
     this.onTap,
-    this.borderColor = const Color(0x1FFFFFFF),
+    this.borderColor = AppSurfaces.border,
   });
 
   final Widget child;
@@ -136,30 +139,27 @@ class GlassCard extends StatelessWidget {
     final content = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: const Color(0x14FFFFFF),
+        color: AppColors.surface,
         borderRadius: borderRadius,
         border: Border.all(color: borderColor),
       ),
       child: child,
     );
 
+    if (onTap == null) return content;
+
     return ClipRRect(
       borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: onTap == null
-            ? content
-            : Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    onTap!();
-                  },
-                  borderRadius: borderRadius,
-                  child: content,
-                ),
-              ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap!();
+          },
+          borderRadius: borderRadius,
+          child: content,
+        ),
       ),
     );
   }
@@ -212,11 +212,13 @@ class _GradientButtonState extends State<GradientButton> {
             decoration: BoxDecoration(
               gradient: AppColors.accent,
               borderRadius: BorderRadius.circular(16),
+              // Тень без цвета: на чёрном фоне она читается как глубина
+              // кнопки, а не как свечение.
               boxShadow: enabled
                   ? [
                       BoxShadow(
-                        color: AppColors.violet.withValues(alpha: 0.30),
-                        blurRadius: 24,
+                        color: Colors.white.withValues(alpha: 0.14),
+                        blurRadius: 22,
                         offset: const Offset(0, 8),
                       ),
                     ]
@@ -229,20 +231,20 @@ class _GradientButtonState extends State<GradientButton> {
                       height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
-                        valueColor: AlwaysStoppedAnimation(Colors.white),
+                        valueColor: AlwaysStoppedAnimation(Colors.black),
                       ),
                     )
                   : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (widget.icon != null) ...[
-                          Icon(widget.icon, color: Colors.white, size: 19),
+                          Icon(widget.icon, color: Colors.black, size: 19),
                           const SizedBox(width: 9),
                         ],
                         Text(
                           widget.label,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: Colors.black,
                             fontSize: 15.5,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.1,

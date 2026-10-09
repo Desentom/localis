@@ -1,31 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Тёмная тема приложения. Основная идея — «стекло» поверх живой градиентной
-/// подложки: пользователь сразу видит, что интерфейс локальный и лёгкий.
+/// Монохромная тема.
+///
+/// В основе решения лежит не вкус, а техника: на телефоне с 3–4 ГБ
+/// оперативной памяти каждый сэкранды градиентного фона — это лишняя
+/// перерисовка GPU. Здесь нет ни одного цветного пикселя: иерархия
+/// строится на весе шрифта, рамках и значках, а не на оттенке.
 abstract final class AppColors {
-  static const bg = Color(0xFF07080D);
-  static const bgElevated = Color(0xFF0E1018);
+  /// Чистый чёрный. Экономит память композитора и отключает
+  /// перерисовку фона на OLED-экранах.
+  static const bg = Color(0xFF000000);
+  static const surface = Color(0xFF0A0A0A);
+  static const elevated = Color(0xFF121212);
 
-  static const violet = Color(0xFF7C5CFF);
-  static const cyan = Color(0xFF22D3EE);
-  static const mint = Color(0xFF34E5A3);
+  /// Заметка, диалог, карточка поверх [elevated]. Историческое имя
+  /// оставлено, чтобы не трогать все места использования.
+  static const bgElevated = elevated;
 
-  static const textPrimary = Color(0xFFF2F4F8);
-  static const textSecondary = Color(0xFF9AA3B5);
-  static const textFaint = Color(0xFF5E6678);
+  /// Белый — единственный акцент приложения.
+  static const textPrimary = Color(0xFFFFFFFF);
+  static const textSecondary = Color(0xFFA6A6A6);
+  static const textFaint = Color(0xFF6E6E6E);
 
-  static const danger = Color(0xFFFF6B6B);
-  static const warning = Color(0xFFFFB84D);
+  static const danger = Color(0xFFFFFFFF);
+  static const warning = Color(0xFFFFFFFF);
 
-  /// Градиент фирменного акцента.
   static const accent = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [violet, cyan],
+    colors: [Color(0xFFFFFFFF), Color(0xFFCFCFCF)],
   );
 
-  static const cardBorder = BorderSide(color: Color(0x1AFFFFFF));
+  static const cardBorder = BorderSide(color: Color(0x1FFFFFFF));
+}
+
+/// Фон карточек и панелей: полупрозрачный белый слоем на чёрном.
+abstract final class AppSurfaces {
+  static const card = Color(0xFF0A0A0A);
+  static const cardRaised = Color(0xFF141414);
+  static const border = Color(0xFF232323);
+  static const borderStrong = Color(0xFF3A3A3A);
 }
 
 abstract final class AppRadius {
@@ -37,14 +52,14 @@ abstract final class AppRadius {
 
 ThemeData buildAppTheme() {
   const scheme = ColorScheme.dark(
-    primary: AppColors.violet,
-    onPrimary: Colors.white,
-    secondary: AppColors.cyan,
-    onSecondary: Color(0xFF04252B),
-    surface: AppColors.bgElevated,
+    primary: Colors.white,
+    onPrimary: Colors.black,
+    secondary: Color(0xFFA6A6A6),
+    onSecondary: Colors.black,
+    surface: AppColors.surface,
     onSurface: AppColors.textPrimary,
-    error: AppColors.danger,
-    onError: Colors.white,
+    error: Colors.white,
+    onError: Colors.black,
   );
 
   final base = ThemeData(
@@ -100,7 +115,7 @@ ThemeData buildAppTheme() {
       space: 1,
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: const Color(0xFF1A1D28),
+      backgroundColor: AppColors.elevated,
       behavior: SnackBarBehavior.floating,
       shape: const RoundedRectangleBorder(borderRadius: AppRadius.chip),
       contentTextStyle: const TextStyle(color: AppColors.textPrimary),
@@ -110,11 +125,26 @@ ThemeData buildAppTheme() {
       surfaceTintColor: Colors.transparent,
     ),
     sliderTheme: SliderThemeData(
-      activeTrackColor: AppColors.violet,
+      activeTrackColor: Colors.white,
       inactiveTrackColor: const Color(0x22FFFFFF),
       thumbColor: Colors.white,
+      overlayColor: const Color(0x14FFFFFF),
       overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-      trackHeight: 4,
+      trackHeight: 3,
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: Colors.white,
+      linearTrackColor: Color(0x22FFFFFF),
+      circularTrackColor: Color(0x22FFFFFF),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected) ? Colors.white : const Color(0xFF8A8A8A),
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected) ? const Color(0xFF5A5A5A) : const Color(0xFF1C1C1C),
+      ),
+      trackOutlineColor: WidgetStateProperty.all(AppSurfaces.border),
     ),
   );
 }
