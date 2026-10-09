@@ -210,19 +210,9 @@ class _GradientButtonState extends State<GradientButton> {
             height: 54,
             width: double.infinity,
             decoration: BoxDecoration(
-              gradient: AppColors.accent,
+              color: const Color(0xFF141414),
               borderRadius: BorderRadius.circular(16),
-              // Тень без цвета: на чёрном фоне она читается как глубина
-              // кнопки, а не как свечение.
-              boxShadow: enabled
-                  ? [
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        blurRadius: 22,
-                        offset: const Offset(0, 8),
-                      ),
-                    ]
-                  : null,
+              border: Border.all(color: AppColors.focus, width: 1.5),
             ),
             child: Center(
               child: widget.busy
@@ -231,20 +221,20 @@ class _GradientButtonState extends State<GradientButton> {
                       height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
-                        valueColor: AlwaysStoppedAnimation(Colors.black),
+                        valueColor: AlwaysStoppedAnimation(Colors.white),
                       ),
                     )
                   : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (widget.icon != null) ...[
-                          Icon(widget.icon, color: Colors.black, size: 19),
+                          Icon(widget.icon, color: Colors.white, size: 19),
                           const SizedBox(width: 9),
                         ],
                         Text(
                           widget.label,
                           style: const TextStyle(
-                            color: Colors.black,
+                            color: Colors.white,
                             fontSize: 15.5,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.1,

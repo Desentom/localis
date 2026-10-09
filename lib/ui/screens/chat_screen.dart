@@ -182,10 +182,10 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              gradient: AppColors.accent,
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.focus, width: 1.5),
             ),
-            child: const Icon(Icons.memory_rounded, size: 18, color: Colors.black),
+            child: const Icon(Icons.memory_rounded, size: 18, color: Colors.white),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -259,8 +259,8 @@ class _EmptyState extends StatelessWidget {
             width: 62,
             height: 62,
             decoration: BoxDecoration(
-              gradient: AppColors.accent,
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.focus, width: 1.5),
               boxShadow: [
                 BoxShadow(
                   color: Colors.white.withValues(alpha: 0.16),
@@ -269,7 +269,7 @@ class _EmptyState extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.memory_rounded, size: 31, color: Colors.black),
+            child: const Icon(Icons.memory_rounded, size: 31, color: Colors.white),
           ),
         ),
         const SizedBox(height: 18),
@@ -498,13 +498,17 @@ class _SendButton extends StatelessWidget {
         width: 48,
         height: 48,
         decoration: BoxDecoration(
-          gradient: active ? AppColors.accent : null,
-          color: active ? null : const Color(0x14FFFFFF),
+          // Активная кнопка — тёмная с белой рамкой, а не залитая белым:
+          // светлых пятен в приложении нет вообще.
+          color: active ? const Color(0xFF1F1F1F) : const Color(0x14FFFFFF),
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: active ? AppColors.focus : const Color(0x1AFFFFFF),
+          ),
         ),
         child: Icon(
           generating ? Icons.stop_rounded : Icons.arrow_upward_rounded,
-          color: active ? Colors.black : AppColors.textFaint,
+          color: active ? Colors.white : AppColors.textFaint,
           size: 22,
         ),
       ),

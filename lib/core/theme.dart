@@ -1,24 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Монохромная тема.
+/// Монохромная тёмная тема.
 ///
-/// В основе решения лежит не вкус, а техника: на телефоне с 3–4 ГБ
-/// оперативной памяти каждый сэкранды градиентного фона — это лишняя
-/// перерисовка GPU. Здесь нет ни одного цветного пикселя: иерархия
-/// строится на весе шрифта, рамках и значках, а не на оттенке.
+/// В основе решения два требования, и оба технические.
+///
+/// Первое: на телефоне с 3–4 ГБ оперативной памяти лишняя перерисовка
+/// фона стоит кадров, а плавность интерфейса здесь продающая фича.
+///
+/// Второе, и важнее: **в приложении нет ни одной светлой заливки.**
+/// Только чёрный, оттенки серого и белый текст. Светлые пятна выглядят
+/// как дыры в оформлении, а на OLED ещё и выжигают экран. Различить
+/// элементы помогают рамки и значки, а не заливка.
 abstract final class AppColors {
   /// Чистый чёрный. Экономит память композитора и отключает
   /// перерисовку фона на OLED-экранах.
   static const bg = Color(0xFF000000);
-  static const surface = Color(0xFF0A0A0A);
-  static const elevated = Color(0xFF121212);
+  static const surface = Color(0xFF0B0B0B);
+  static const elevated = Color(0xFF141414);
 
   /// Заметка, диалог, карточка поверх [elevated]. Историческое имя
   /// оставлено, чтобы не трогать все места использования.
   static const bgElevated = elevated;
 
-  /// Белый — единственный акцент приложения.
+  /// Белый — только текст и рамки, никогда не заливка.
   static const textPrimary = Color(0xFFFFFFFF);
   static const textSecondary = Color(0xFFA6A6A6);
   static const textFaint = Color(0xFF6E6E6E);
@@ -26,21 +31,25 @@ abstract final class AppColors {
   static const danger = Color(0xFFFFFFFF);
   static const warning = Color(0xFFFFFFFF);
 
-  static const accent = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [Color(0xFFFFFFFF), Color(0xFFCFCFCF)],
-  );
+  /// Рамка главного действия. Заливать кнопку белым нельзя — это
+  /// единственное, что выглядело бы как светлое пятно.
+  static const focus = Color(0xFFFFFFFF);
 
-  static const cardBorder = BorderSide(color: Color(0x1FFFFFFF));
+  static const cardBorder = BorderSide(color: Color(0x26FFFFFF));
 }
 
-/// Фон карточек и панелей: полупрозрачный белый слоем на чёрном.
+/// Фон карточек и панелей: тёмные заливки, разделение — рамками.
 abstract final class AppSurfaces {
-  static const card = Color(0xFF0A0A0A);
-  static const cardRaised = Color(0xFF141414);
-  static const border = Color(0xFF232323);
-  static const borderStrong = Color(0xFF3A3A3A);
+  static const card = Color(0xFF0B0B0B);
+  static const cardRaised = Color(0xFF171717);
+  static const border = Color(0xFF262626);
+  static const borderStrong = Color(0xFF444444);
+
+  /// Пузырь человека: заметно темнее фона, но не светлее.
+  static const bubbleUser = Color(0xFF1F1F1F);
+
+  /// Пузырь модели: чуть темнее фона, с тонкой рамкой.
+  static const bubbleModel = Color(0xFF121212);
 }
 
 abstract final class AppRadius {
@@ -53,13 +62,13 @@ abstract final class AppRadius {
 ThemeData buildAppTheme() {
   const scheme = ColorScheme.dark(
     primary: Colors.white,
-    onPrimary: Colors.black,
+    onPrimary: Colors.white,
     secondary: Color(0xFFA6A6A6),
-    onSecondary: Colors.black,
+    onSecondary: Colors.white,
     surface: AppColors.surface,
     onSurface: AppColors.textPrimary,
     error: Colors.white,
-    onError: Colors.black,
+    onError: Colors.white,
   );
 
   final base = ThemeData(

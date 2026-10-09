@@ -57,8 +57,8 @@ class _Logo extends StatelessWidget {
           width: 74,
           height: 74,
           decoration: BoxDecoration(
-            gradient: AppColors.accent,
             borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.focus, width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.white.withValues(alpha: 0.18),
@@ -67,7 +67,7 @@ class _Logo extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(Icons.memory_rounded, size: 38, color: Colors.black),
+          child: const Icon(Icons.memory_rounded, size: 38, color: Colors.white),
         ),
         const SizedBox(height: 18),
         const Text(

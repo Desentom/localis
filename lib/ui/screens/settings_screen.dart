@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../core/version.dart';
 import '../../data/model_spec.dart';
 import '../../data/personas.dart';
 import '../../services/auth_service.dart';
@@ -106,6 +107,8 @@ class SettingsScreen extends StatelessWidget {
           const _Section('О приложении'),
           const SizedBox(height: 8),
           const _AboutCard(),
+          const SizedBox(height: 8),
+          _DiagnosticsCard(controller: controller),
         ],
       ),
     );
@@ -150,10 +153,10 @@ class _StatusCard extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  gradient: AppColors.accent,
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.focus, width: 1.5),
                 ),
-                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.black),
+                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.white),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -594,37 +597,43 @@ class _SignInButton extends StatelessWidget {
     return SizedBox(
       height: 46,
       child: Material(
-        color: Colors.white,
+        color: const Color(0xFF141414),
         borderRadius: BorderRadius.circular(13),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(13),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Логотип Google рисуем текстом — это допустимо и не тянет
-                // зависимость с картинками. Буква чёрная: в приложении нет
-                // ни одного цветного пикселя, и синий «G» выбивался бы из
-                // оформления. Слово «Google» рядом всё равно читается.
-                Text(
-                  'G',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.black,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.focus, width: 1.5),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(13),
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Логотип Google рисуем текстом — это допустимо и не тянет
+                  // зависимость с картинками. Буква белая: в приложении нет
+                  // цветных пикселей, и синий «G» выбивался бы из оформления.
+                  // Слово «Google» рядом всё равно читается.
+                  Text(
+                    'G',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 11),
-                const Text(
-                  'Войти через Google',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1F1F1F),
+                  const SizedBox(width: 11),
+                  const Text(
+                    'Войти через Google',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -725,18 +734,94 @@ class _AboutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const GlassCard(
+    return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Row(label: 'Движок', value: 'llama.cpp'),
-          _Row(label: 'Модели', value: 'Qwen 2.5 / Qwen 3, GGUF'),
-          _Row(label: 'Лицензия модели', value: 'Apache 2.0 (Qwen)'),
-          SizedBox(height: 6),
-          Text(
+          // Версия видна прямо в приложении. Раньше приходилось гадать по
+          // скриншоту, какая сборка запущена: в заголовке значилась модель,
+          // которой в новом каталоге уже нет, и вывод делался неверный.
+          const _Row(label: 'Версия', value: appVersion),
+          const _Row(label: 'Движок', value: 'llama.cpp, libllama.so'),
+          const _Row(label: 'Формат диалога', value: 'ChatML, вручную'),
+          const _Row(label: 'Модели', value: 'Qwen 2.5 / Qwen 3 Instruct'),
+          const _Row(label: 'Лицензия модели', value: 'Apache 2.0 (Qwen)'),
+          const SizedBox(height: 6),
+          const Text(
             'Приложение бесплатное и останется таким: токены считает телефон, '
             'поэтому себестоимость ответа равна нулю.',
-            style: TextStyle(color: AppColors.textFaint, fontSize: 11.8, height: 1.45),
+            style: TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 11.8,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Версия приложения и полная диагностика одним нажатием.
+///
+/// Понимание, какая сборка стоит, какая модель загружена и что с
+/// контекстом, экономит больше времени, чем любые догадки о том, почему
+/// модель не отвечает.
+class _DiagnosticsCard extends StatelessWidget {
+  const _DiagnosticsCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final cap = controller.capability;
+    final out = controller.activeModel;
+
+    String value() {
+      final b = StringBuffer();
+      b.writeln('Localis $appVersion');
+      b.writeln('Модель: ${out?.title ?? 'нет'} (${out?.id ?? '—'})');
+      b.writeln('Файл: ${out?.fileName ?? '—'}');
+      b.writeln(
+        'Контекст: ${controller.effectiveContextSize} из '
+        '${controller.settings.contextSize}',
+      );
+      b.writeln('Ядер: ${cap?.cores ?? 0}');
+      b.writeln('Свободно RAM: ${formatBytes(cap?.freeRamBytes ?? 0, decimals: 2)}');
+      b.writeln('Vulkan: ${cap?.vulkanSupported ?? false ? 'да' : 'нет'}');
+      b.writeln('Движок: llama_flutter_android');
+      if (controller.error != null) b.writeln('Ошибка: ${controller.error}');
+      return b.toString();
+    }
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Диагностика',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Нажмите, чтобы скопировать отчёт о телефоне и модели.',
+            style: TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 11.8,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GradientButton(
+            label: 'Скопировать отчёт',
+            icon: Icons.copy_all_rounded,
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              await Clipboard.setData(ClipboardData(text: value()));
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Отчёт скопирован')),
+              );
+            },
           ),
         ],
       ),

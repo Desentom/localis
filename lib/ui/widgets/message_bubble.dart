@@ -38,15 +38,23 @@ class MessageBubble extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 340),
               padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
               decoration: BoxDecoration(
-                gradient: isUser ? AppColors.accent : null,
-                color: isUser ? null : const Color(0x16FFFFFF),
+                // Никаких светлых заливок: обе реплики тёмные, различаются
+                // оттенком и рамкой. Инверсия «белым по белому» из прошлой
+                // версии выглядела как дыра в оформлении.
+                color: isUser
+                    ? AppSurfaces.bubbleUser
+                    : AppSurfaces.bubbleModel,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(20),
                   topRight: const Radius.circular(20),
                   bottomLeft: Radius.circular(isUser ? 20 : 6),
                   bottomRight: Radius.circular(isUser ? 6 : 20),
                 ),
-                border: isUser ? null : Border.all(color: const Color(0x14FFFFFF)),
+                border: Border.all(
+                  color: isUser
+                      ? AppSurfaces.borderStrong
+                      : AppSurfaces.border,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,13 +70,11 @@ class MessageBubble extends StatelessWidget {
                     ),
                     child: SingleChildScrollView(
                       child: Text.rich(
-                        _render(message.text, onLight: isUser),
+                        _render(message.text),
                         style: TextStyle(
-                          // Пузырь пользователя залит белым — текст в нём
-                          // чёрный. Пузырь модели тёмный — текст белый. Это
-                          // единственное место, где в приложении есть
-                          // инверсия, и она работает как признак «кто говорит».
-                          color: isUser ? Colors.black : AppColors.textPrimary,
+                          // Текст в обоих пузырях белый: заливки тёмные, различаются оттенком
+                          // и рамкой. Инверсии в приложении больше нет.
+                          color: AppColors.textPrimary,
                           fontSize: 15,
                           height: 1.45,
                         ),
@@ -118,10 +124,10 @@ class _Avatar extends StatelessWidget {
       width: 28,
       height: 28,
       decoration: BoxDecoration(
-        gradient: AppColors.accent,
         borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: AppColors.focus, width: 1.5),
       ),
-      child: const Icon(Icons.memory_rounded, size: 16, color: Colors.black),
+      child: const Icon(Icons.memory_rounded, size: 16, color: Colors.white),
     );
   }
 }
@@ -165,15 +171,14 @@ class _CaretState extends State<_Caret> with SingleTickerProviderStateMixin {
 
 /// Разбор ответа модели в [TextSpan]. Поддерживается ровно то, что нужно.
 ///
-/// [onLight] — ответ пишется на белый пузырь пользователя, а не на тёмный
-/// пузырь модели. Без этого флага маркеры списков и номера оказались бы
-/// белыми по белому.
-TextSpan _render(String raw, {required bool onLight}) {
+/// Текст в обоих пузырях белый, поэтому цвет маркеров больше не зависит
+/// от того, чья это реплика.
+TextSpan _render(String raw) {
   final span = TextSpan(style: const TextStyle());
   if (raw.isEmpty) return span;
 
-  // Маркер списка или номера: белый на тёмном, чёрный на белом.
-  final marker = onLight ? Colors.black : Colors.white;
+  // Оба пузыря тёмные, поэтому маркер всегда светлее основного текста.
+  const marker = Colors.white;
 
   final blocks = raw.split('\n');
   for (var i = 0; i < blocks.length; i++) {
@@ -196,7 +201,7 @@ TextSpan _render(String raw, {required bool onLight}) {
       for (; j < blocks.length && !blocks[j].trim().startsWith('```'); j++) {
         code.add(blocks[j]);
       }
-      span.children!.add(_codeSpan(code.join('\n'), onLight: onLight));
+      span.children!.add(_codeSpan(code.join('\n')));
       // Пропускаем закрывающий ``` — он уже учтён в цикле выше.
       i = j;
       continue;
@@ -205,7 +210,7 @@ TextSpan _render(String raw, {required bool onLight}) {
     if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
       span.children!.addAll([
         TextSpan(text: '•  ', style: TextStyle(color: marker)),
-        ..._inline(trimmed.substring(2), onLight: onLight),
+        ..._inline(trimmed.substring(2)),
       ]);
       continue;
     }
@@ -217,7 +222,7 @@ TextSpan _render(String raw, {required bool onLight}) {
           text: '${numbered.group(1)}.  ',
           style: TextStyle(color: marker, fontWeight: FontWeight.w700),
         ),
-        ..._inline(trimmed.substring(numbered.end), onLight: onLight),
+        ..._inline(trimmed.substring(numbered.end)),
       ]);
       continue;
     }
@@ -234,12 +239,12 @@ TextSpan _render(String raw, {required bool onLight}) {
       continue;
     }
 
-    span.children!.addAll(_inline(trimmed, onLight: onLight));
+    span.children!.addAll(_inline(trimmed));
   }
   return span;
 }
 
-TextSpan _codeSpan(String code, {required bool onLight}) => TextSpan(
+TextSpan _codeSpan(String code) => TextSpan(
   children: [
     const TextSpan(text: '\n'),
     WidgetSpan(
@@ -248,7 +253,7 @@ TextSpan _codeSpan(String code, {required bool onLight}) => TextSpan(
         width: double.infinity,
         padding: const EdgeInsets.all(11),
         decoration: BoxDecoration(
-          color: onLight ? const Color(0x14000000) : const Color(0xB3000000),
+          color: const Color(0xFF000000),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
@@ -257,7 +262,7 @@ TextSpan _codeSpan(String code, {required bool onLight}) => TextSpan(
             fontFamily: 'monospace',
             fontSize: 12.5,
             height: 1.45,
-            color: onLight ? const Color(0xFF1A1A1A) : const Color(0xFFCFCFCF),
+            color: const Color(0xFFCFCFCF),
           ),
         ),
       ),
@@ -267,8 +272,8 @@ TextSpan _codeSpan(String code, {required bool onLight}) => TextSpan(
 );
 
 /// Жирный `**текст**` и моноширинный `текст` внутри строки.
-List<TextSpan> _inline(String line, {required bool onLight}) {
-  final codeColor = onLight ? const Color(0xFF1A1A1A) : const Color(0xFFCFCFCF);
+List<TextSpan> _inline(String line) {
+  const codeColor = Color(0xFFCFCFCF);
 
   final parts = <TextSpan>[];
   final pattern = RegExp(r'(\*\*.+?\*\*|`[^`]+`)');
