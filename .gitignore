@@ -1,0 +1,49 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# pubspec.lock для ПРИЛОЖЕНИЯ коммитится намеренно. Так все, кто собирает
+# проект и запускает тесты, получают ровно те же версии зависимостей,
+# что и у вас. Без этого «работает у меня» превращается в «работает у
+# меня и ещё у одного человека».
+!pubspec.lock
+
+# Android
+android/.gradle/
+android/.cxx/
+android/captures/
+android/local.properties
+android/key.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.jks
+*.keystore
+
+# Firebase — содержит ключи проекта
+android/app/google-services.json
+lib/firebase_options.dart
+service-account*.json
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Логи падений JVM и Gradle. Появляются после каждого аварийного
+# завершения сборки и весят по несколько мегабайт — в репозитории им
+# не место.
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# Готовые сборки и модели — никогда в репозиторий.
+# APK раздаётся через GitHub Releases, а не коммитится:
+# бинарник в истории репозитория раздувает его навсегда.
+*.apk
+*.aab
+*.gguf
+*.gguf.part

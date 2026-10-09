@@ -1,0 +1,711 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../core/format.dart';
+import '../../core/theme.dart';
+import '../../data/model_spec.dart';
+import '../../data/personas.dart';
+import '../../services/auth_service.dart';
+import '../../state/app_controller.dart';
+import '../widgets/aurora_background.dart';
+import 'splash_screen.dart';
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Настройки', style: TextStyle(fontWeight: FontWeight.w700)),
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        children: [
+          _StatusCard(controller: controller),
+          const SizedBox(height: 22),
+
+          const _Section('Модель'),
+          const SizedBox(height: 8),
+          _ModelSwitcher(controller: controller),
+          const SizedBox(height: 22),
+
+          const _Section('Режим ответа'),
+          const SizedBox(height: 8),
+          _PersonaSwitcher(controller: controller),
+          const SizedBox(height: 10),
+          _ThinkModeTile(controller: controller),
+          const SizedBox(height: 22),
+
+          const _Section('Точность и скорость'),
+          const SizedBox(height: 4),
+          _Slider(
+            title: 'Свобода ответа',
+            hint: 'Ниже — факты и повторение. Выше — живой текст, но иногда '
+                'с выдумками.',
+            value: controller.settings.temperature,
+            min: 0,
+            max: 1.4,
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(temperature: v),
+            ),
+          ),
+          _Slider(
+            title: 'Длина ответа',
+            hint: 'Больше — ответ длиннее и медленнее.',
+            value: controller.settings.maxTokens.toDouble(),
+            min: 128,
+            max: 2048,
+            steps: 15,
+            format: (v) => 'до ${v.round()} токенов',
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(maxTokens: v.round()),
+            ),
+          ),
+          _Slider(
+            title: 'Размер контекста',
+            hint: 'Сколько диалога модель помнит. Больше — больше памяти.',
+            value: controller.settings.contextSize.toDouble(),
+            min: 1024,
+            max: 8192,
+            steps: 7,
+            format: (v) => '${(v / 1024).round()} тыс. токенов',
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(contextSize: v.round()),
+            ),
+          ),
+          const SizedBox(height: 22),
+
+          const _Section('Аккаунт'),
+          const SizedBox(height: 8),
+          _AccountCard(controller: controller),
+          const SizedBox(height: 8),
+          const _GuestNote(),
+          const SizedBox(height: 22),
+
+          const _Section('Данные'),
+          const SizedBox(height: 8),
+          _StorageCard(controller: controller),
+          const SizedBox(height: 22),
+
+          const _Section('О приложении'),
+          const SizedBox(height: 8),
+          const _AboutCard(),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final model = controller.activeModel;
+    final cap = controller.capability;
+    final outcome = controller.loadOutcome;
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  gradient: AppColors.accent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      model?.title ?? 'Модель не выбрана',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    const OfflineBadge(compact: true),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Divider(),
+          const SizedBox(height: 12),
+          if (cap != null)
+            _Row(
+              label: 'Телефон',
+              value: cap.summary,
+            ),
+          if (outcome != null)
+            _Row(
+              label: 'Загрузка модели',
+              value: formatDuration(outcome.loadedIn),
+            ),
+          _Row(
+            label: 'Режим ответа',
+            value: '${controller.persona.emoji} ${controller.persona.title}',
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Все вычисления идут на этом устройстве. Ни один вопрос '
+            'не покидает телефон.',
+            style: TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.45),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Row extends StatelessWidget {
+  const _Row({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(color: AppColors.textFaint, fontSize: 12.5),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          color: AppColors.textFaint,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.1,
+        ),
+      ),
+    );
+  }
+}
+
+class _ModelSwitcher extends StatelessWidget {
+  const _ModelSwitcher({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: ModelCatalog.all.map((spec) {
+        final installed = controller.installed.containsKey(spec.id);
+        final active = controller.activeModel?.id == spec.id;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: active ? const Color(0x1A7C5CFF) : const Color(0x10FFFFFF),
+            borderRadius: AppRadius.card,
+            child: InkWell(
+              borderRadius: AppRadius.card,
+              onTap: () => controller.selectModel(spec),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  borderRadius: AppRadius.card,
+                  border: Border.all(
+                    color: active ? AppColors.violet : const Color(0x12FFFFFF),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      active ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                      size: 19,
+                      color: active ? AppColors.violet : AppColors.textFaint,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            spec.title,
+                            style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${formatBytes(spec.bytes)} · ${spec.speedHint}'
+                            '${installed ? '' : ' · скачать'}',
+                            style: const TextStyle(
+                              fontSize: 11.8,
+                              color: AppColors.textFaint,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (installed)
+                      IconButton(
+                        onPressed: () => _confirmDelete(context, spec),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        color: AppColors.textFaint,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, ModelSpec spec) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgElevated,
+        title: const Text('Удалить модель?'),
+        content: Text(
+          'Файл ${formatBytes(spec.bytes)} будет удалён с телефона. '
+          'Скачать его заново можно будет в любой момент.',
+          style: const TextStyle(color: AppColors.textSecondary, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Удалить', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await controller.deleteModel(spec);
+  }
+}
+
+class _PersonaSwitcher extends StatelessWidget {
+  const _PersonaSwitcher({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: Personas.all.map((p) {
+        final selected = p.id == controller.settings.personaId;
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            controller.updateSettings(controller.settings.copyWith(personaId: p.id));
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.violet.withValues(alpha: 0.22) : const Color(0x10FFFFFF),
+              borderRadius: AppRadius.chip,
+              border: Border.all(
+                color: selected ? AppColors.violet : const Color(0x14FFFFFF),
+              ),
+            ),
+            child: Text(
+              '${p.emoji}  ${p.title}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : AppColors.textSecondary,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _ThinkModeTile extends StatelessWidget {
+  const _ThinkModeTile({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = controller.settings.thinkMode;
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Режим «подумать»',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Просит модель сначала спланировать ответ. Медленнее, '
+                  'но на уравнениях и логике ошибок меньше.',
+                  style: TextStyle(
+                    color: AppColors.textFaint,
+                    fontSize: 11.8,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: on,
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(thinkMode: v),
+            ),
+            activeThumbColor: Colors.white,
+            activeTrackColor: AppColors.violet,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Slider extends StatelessWidget {
+  const _Slider({
+    required this.title,
+    required this.hint,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.steps,
+    this.format,
+  });
+
+  final String title;
+  final String hint;
+  final double value;
+  final double min;
+  final double max;
+  final int? steps;
+  final String Function(double)? format;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // Поле final не продвигается в null-типизацию, поэтому счётчик
+    // приводим к локальной переменной.
+    final divisions = steps == null ? null : steps! + 1;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              Text(
+                format?.call(value) ?? value.toStringAsFixed(2).replaceAll('.', ','),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.cyan,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            // В Flutter 3.47 параметр steps переименован в divisions:
+            // это количество ПРОМЕЖУТКОВ, то есть на единицу больше прежнего steps.
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
+          Text(
+            hint,
+            style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountCard extends StatelessWidget {
+  const _AccountCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.account;
+
+    return switch (state) {
+      SignedInAccount(:final displayName, :final email, :final photoUrl) => GlassCard(
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 21,
+              backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+              child: photoUrl == null
+                  ? Text(
+                      (displayName ?? '?').characters.first.toUpperCase(),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName ?? 'Аккаунт Google',
+                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (email != null)
+                    Text(
+                      email,
+                      style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => controller.auth.signOut(),
+              child: const Text('Выйти'),
+            ),
+          ],
+        ),
+      ),
+      AuthFailure(:final message) => GlassCard(
+        borderColor: AppColors.danger.withValues(alpha: 0.3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: const TextStyle(color: AppColors.danger, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            _SignInButton(onPressed: () => controller.auth.signInWithGoogle()),
+          ],
+        ),
+      ),
+      GuestAccount() => _SignInButton(onPressed: () => controller.auth.signInWithGoogle()),
+    };
+  }
+}
+
+class _SignInButton extends StatelessWidget {
+  const _SignInButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 46,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(13),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(13),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Логотип Google рисуем текстом — это допустимо и не тянет
+                // зависимость с картинками.
+                Text(
+                  'G',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF4285F4),
+                  ),
+                ),
+                const SizedBox(width: 11),
+                const Text(
+                  'Войти через Google',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1F1F1F),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GuestNote extends StatelessWidget {
+  const _GuestNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(4, 0, 4, 0),
+      child: Text(
+        'Вход не обязателен. Он понадобится только когда появится облачная '
+        'синхронизация истории между устройствами.',
+        style: TextStyle(color: AppColors.textFaint, fontSize: 11.8, height: 1.45),
+      ),
+    );
+  }
+}
+
+class _StorageCard extends StatelessWidget {
+  const _StorageCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = controller.installed.length;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Row(
+            label: 'Моделей на телефоне',
+            value: count == 0
+                ? 'нет'
+                : '$count ${plural(count, 'модель', 'модели', 'моделей')}',
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Диалоги и модели лежат только на этом устройстве. Удаление '
+            'приложения стирает их безвозвратно.',
+            style: TextStyle(color: AppColors.textFaint, fontSize: 11.8, height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AppColors.bgElevated,
+                    title: const Text('Очистить историю?'),
+                    content: const Text(
+                      'Все диалоги будут удалены. Модели останутся на месте.',
+                      style: TextStyle(color: AppColors.textSecondary, height: 1.45),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Отмена'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Удалить', style: TextStyle(color: AppColors.danger)),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  controller.chatStore.deleteAll();
+                  controller.startNewSession();
+                }
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                side: const BorderSide(color: Color(0x1FFFFFFF)),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+              ),
+              icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+              label: const Text('Очистить историю диалогов'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AboutCard extends StatelessWidget {
+  const _AboutCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Row(label: 'Движок', value: 'llama.cpp'),
+          _Row(label: 'Модели', value: 'Qwen 2.5 / Qwen 3, GGUF'),
+          _Row(label: 'Лицензия модели', value: 'Apache 2.0 (Qwen)'),
+          SizedBox(height: 6),
+          Text(
+            'Приложение бесплатное и останется таким: токены считает телефон, '
+            'поэтому себестоимость ответа равна нулю.',
+            style: TextStyle(color: AppColors.textFaint, fontSize: 11.8, height: 1.45),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,18 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Незакрытые ресурсы — частая беда при работе с FFI/изолятами.
+    close_sinks: warning
+  exclude:
+    - "**/*.g.dart"
+    - "**/generated_plugin_registrant.dart"
+    - build/**
+    - android/**
+
+linter:
+  rules:
+    - prefer_final_locals
+    - avoid_print
+    - require_trailing_commas
+    - unawaited_futures

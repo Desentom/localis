@@ -1,0 +1,19 @@
+# Git и Windows по-разному договариваются о переводах строк. Если не
+# зафиксировать это явно, gradlew уедет в репозиторий с CRLF и на Linux
+# и macOS перестанет запускаться с ошибкой «/bin/sh^M: bad interpreter».
+# На моём опыте это самая частая причина, по которой свежий клон
+# Flutter-проекта не собирается у другого разработчика.
+
+* text=auto eol=lf
+
+*.bat    text eol=crlf
+gradlew  text eol=lf
+gradlew.bat text eol=crlf
+
+# Бинарные файлы, которые всё равно попадут в проект
+*.gguf   binary
+*.jar    binary
+*.png    binary
+*.jks    binary
+*.keystore binary
+*.apk    binary

@@ -1,0 +1,38 @@
+name: localis
+description: "Офлайн-нейросеть на телефоне. Работает без интернета."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Инференс на устройстве (llama.cpp внутри плагина, .so уже собраны) ---
+  llama_flutter_android: ^0.2.6
+
+  # --- Аккаунт и падения ---
+  firebase_core: ^4.1.0
+  firebase_auth: ^6.1.0
+  firebase_crashlytics: ^5.0.0
+  google_sign_in: ^7.2.0
+
+  # --- Хранилище и загрузка моделей ---
+  shared_preferences: ^2.3.0
+  path_provider: ^2.1.4
+  http: ^1.2.2
+  crypto: ^3.0.5
+
+  # --- Прочее ---
+  intl: ^0.20.0
+  package_info_plus: ^8.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
