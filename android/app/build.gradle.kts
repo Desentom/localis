@@ -1,9 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // Flutter Gradle Plugin применяется строго после Android и Kotlin.
     id("dev.flutter.flutter-gradle-plugin")
     // Раскомментировать после добавления android/app/google-services.json:
     // id("com.google.gms.google-services")
+}
+
+// Ключ подписи релиза лежит вне репозитория: android/key.properties
+// добавлен в .gitignore. Без этого файла сборка падает на Android, но
+// на рабочих машинах ничего не ломает — собирается отладочная версия.
+//
+// Импорт Properties сверху обязателен: в Kotlin DSL имя `java` занято
+// расширением Gradle-плагина, и `java.util.Properties()` не разрешается.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystorePropertiesFile.inputStream().use { stream ->
+        keystoreProperties.load(stream)
+    }
 }
 
 android {
@@ -34,6 +51,21 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                // Именно rootProject.file, а не file(...): вызов file() в
+                // модуле приложения ищет относительно android/app/, а ключ
+                // лежит уровнем выше — в android/. С простым file() сборка
+                // доходила до последнего шага и падала уже на подписи.
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
             // R8 включён: без него AAB заметно больше, а правила
@@ -45,9 +77,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Ключ для релиза задаётся в android/key.properties,
-            // см. раздел «Выпуск в Google Play» в README.
-            signingConfig = signingConfigs.getByName("debug")
+            // Подпись своим ключом, а не отладочным.
+            //
+            // Это не формальность. Android отвергает обновление, если
+            // подпись изменилась, и требует сначала удалить старую
+            // версию — а вместе с ней историю диалогов и скачанные
+            // модели. Один ключ на все выпуски решает это навсегда.
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
