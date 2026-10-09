@@ -49,13 +49,17 @@ class SettingsScreen extends StatelessWidget {
 
           const _Section('Точность и скорость'),
           const SizedBox(height: 4),
+          // Значения по умолчанию обязаны попадать точно на сетку делений,
+          // иначе ползунок «прыгает» при первом открытии экрана.
           _Slider(
             title: 'Свобода ответа',
             hint: 'Ниже — факты и повторение. Выше — живой текст, но иногда '
                 'с выдумками.',
             value: controller.settings.temperature,
             min: 0,
-            max: 1.4,
+            max: 1.2,
+            steps: 11,
+            format: (v) => v.toStringAsFixed(1).replaceAll('.', ','),
             onChanged: (v) => controller.updateSettings(
               controller.settings.copyWith(temperature: v),
             ),
@@ -66,28 +70,19 @@ class SettingsScreen extends StatelessWidget {
             value: controller.settings.maxTokens.toDouble(),
             min: 128,
             max: 2048,
-            steps: 15,
+            steps: 29,
             format: (v) => 'до ${v.round()} токенов',
             onChanged: (v) => controller.updateSettings(
               controller.settings.copyWith(maxTokens: v.round()),
             ),
           ),
-          _Slider(
+          _Picker(
             title: 'Размер контекста',
-            hint: contextCeiling < 8192
-                ? 'Сейчас доступно не больше ${(contextCeiling / 1024).round()} тыс. '
-                      'токенов — столько помещается в свободную память телефона. '
-                      'Больше значит больше памяти.'
-                : 'Сколько диалога модель помнит. Больше — больше памяти.',
-            value: controller.settings.contextSize
-                .toDouble()
-                .clamp(1024.0, contextCeiling.toDouble()),
-            min: 1024,
-            max: contextCeiling.toDouble(),
-            steps: 7,
-            format: (v) => '${(v / 1024).round()} тыс. токенов',
+            hint: contextHint(contextCeiling),
+            options: contextOptions(contextCeiling),
+            selected: controller.settings.contextSize,
             onChanged: (v) => controller.updateSettings(
-              controller.settings.copyWith(contextSize: v.round()),
+              controller.settings.copyWith(contextSize: v),
             ),
           ),
           const SizedBox(height: 22),
@@ -275,10 +270,11 @@ class _ModelSwitcher extends StatelessWidget {
       children: ModelCatalog.all.map((spec) {
         final installed = controller.installed.containsKey(spec.id);
         final active = controller.activeModel?.id == spec.id;
+        final loading = controller.phase == AppPhase.loadingModel;
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Material(
-            color: active ? const Color(0x1AFFFFFF) : const Color(0x10FFFFFF),
+            color: active ? const Color(0xFF1F1F1F) : const Color(0x10FFFFFF),
             borderRadius: AppRadius.card,
             child: InkWell(
               borderRadius: AppRadius.card,
@@ -303,17 +299,37 @@ class _ModelSwitcher extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            spec.title,
-                            style: const TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  spec.title,
+                                  style: const TextStyle(
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              // Метка активной модели — раньше её можно было
+                              // не заметить, и выглядело так, будто выбор
+                              // не сработал.
+                              if (active) ...[
+                                const SizedBox(width: 8),
+                                const Pill(
+                                  label: 'загружена',
+                                  icon: Icons.check_circle_rounded,
+                                  color: Colors.white,
+                                  dense: true,
+                                ),
+                              ],
+                            ],
                           ),
                           const SizedBox(height: 3),
                           Text(
                             '${formatBytes(spec.bytes)} · ${spec.speedHint}'
-                            '${installed ? '' : ' · скачать'}',
+                            '${installed ? '' : ' · скачать'}'
+                            '${active ? '' : ' · выбрать'}',
                             style: const TextStyle(
                               fontSize: 11.8,
                               color: AppColors.textFaint,
@@ -322,6 +338,12 @@ class _ModelSwitcher extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (loading && !active)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     if (installed)
                       IconButton(
                         onPressed: () => _confirmDelete(context, spec),
@@ -481,6 +503,18 @@ class _Slider extends StatelessWidget {
     // Поле final не продвигается в null-типизацию, поэтому счётчик
     // приводим к локальной переменной.
     final divisions = steps == null ? null : steps! + 1;
+
+    // Значение приводится к сетке делений. Flutter делает это молча,
+    // и из-за этого ползунок и подпись расходились: подпись показывала
+    // сохранённое число, а бегунок стоял на ближайшем делении. Отсюда
+    // «шкала ездит сама». Здесь округляем явно — и рисуем, и храним
+    // одно и то же число.
+    final snapped = divisions == null
+        ? value.clamp(min, max)
+        : (min + ((value - min) / _stepSize(min, max, divisions)) *
+                      ((value - min) / _stepSize(min, max, divisions)).round())
+                  .clamp(min, max);
+
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -491,7 +525,8 @@ class _Slider extends StatelessWidget {
               Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               const Spacer(),
               Text(
-                format?.call(value) ?? value.toStringAsFixed(2).replaceAll('.', ','),
+                format?.call(snapped) ??
+                    snapped.toStringAsFixed(2).replaceAll('.', ','),
                 style: const TextStyle(
                   fontSize: 12.5,
                   color: Colors.white,
@@ -501,7 +536,7 @@ class _Slider extends StatelessWidget {
             ],
           ),
           Slider(
-            value: value.clamp(min, max),
+            value: snapped,
             min: min,
             max: max,
             // В Flutter 3.47 параметр steps переименован в divisions:
@@ -512,6 +547,105 @@ class _Slider extends StatelessWidget {
           Text(
             hint,
             style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static double _stepSize(double min, double max, int divisions) =>
+      (max - min) / divisions;
+}
+
+/// Размеры контекста, которые телефон действительно потянет.
+///
+/// Не ползунок, а выбор из списка: у ползунка верхняя граница зависит от
+/// свободной памяти, и вместе с ней ломается сетка делений — бегунок
+/// уезжает, а подпись показывает другое число. Список делает все значения
+/// заранее корректными.
+List<int> contextOptions(int ceiling) => [for (final v in [1024, 2048, 4096, 8192]) if (v <= ceiling) v];
+
+String contextHint(int ceiling) => ceiling < 8192
+    ? 'Сейчас доступно не больше ${(ceiling / 1024).round()} тыс. токенов — '
+          'столько помещается в свободную память телефона.'
+    : 'Сколько диалога модель помнит. Больше — больше памяти.';
+
+/// Переключатель из конечного списка. Для небольшого набора значений
+/// честнее кнопки, чем ползунок: человек видит все варианты сразу.
+class _Picker extends StatelessWidget {
+  const _Picker({
+    required this.title,
+    required this.hint,
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String hint;
+  final List<int> options;
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = options.contains(selected)
+        ? options
+        : [selected, ...options]..sort();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final v in values)
+                GestureDetector(
+                  onTap: () => onChanged(v),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: v == selected
+                          ? const Color(0xFF1F1F1F)
+                          : const Color(0x14FFFFFF),
+                      borderRadius: AppRadius.chip,
+                      border: Border.all(
+                        color: v == selected
+                            ? AppColors.focus
+                            : const Color(0x1AFFFFFF),
+                      ),
+                    ),
+                    child: Text(
+                      '${v ~/ 1024} тыс.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: v == selected
+                            ? Colors.white
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hint,
+            style: const TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 11.5,
+              height: 1.4,
+            ),
           ),
         ],
       ),

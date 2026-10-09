@@ -6,6 +6,7 @@ import 'package:localis/data/chat_window.dart';
 import 'package:localis/data/model_spec.dart';
 import 'package:localis/services/device_capability.dart';
 import 'package:localis/services/engine_service.dart';
+import 'package:localis/ui/screens/settings_screen.dart' show contextOptions;
 
 void main() {
   group('formatBytes', () {
@@ -458,6 +459,28 @@ void main() {
     });
   });
 
+  group('contextOptions', () {
+    // Регрессия: верхняя граница ползунка зависела от свободной памяти,
+    // поэтому сетка делений каждый раз получалась другой, и бегунок
+    // «прыгал» при открытии экрана настроек, а подпись показывала
+    // другое число. Список значений это исключает.
+    test('содержит только те размеры, что помещаются в память', () {
+      expect(contextOptions(1024), [1024]);
+      expect(contextOptions(2048), [1024, 2048]);
+      expect(contextOptions(4096), [1024, 2048, 4096]);
+      expect(contextOptions(8192), [1024, 2048, 4096, 8192]);
+    });
+
+    test('все значения кратны 1024 и не превышают потолок', () {
+      for (final ceiling in [1024, 2048, 4096, 8192]) {
+        for (final v in contextOptions(ceiling)) {
+          expect(v % 1024, 0, reason: '$v должен быть кратен 1024');
+          expect(v, lessThanOrEqualTo(ceiling));
+        }
+      }
+    });
+  });
+
   group('resolveGpuLayers', () {
     const noGpu = DeviceCapability(
       cores: 8,
@@ -485,7 +508,15 @@ void main() {
       expect(resolveGpuLayers(tight, ModelCatalog.qwen25_1_5b), 0);
     });
 
-    test('с запасом памяти берём рекомендацию плагина', () {
+    test('GPU-слои не включаются никогда', () {
+      // Регрессия. На телефоне с Adreno 610 и Vulkan модель загружалась
+      // за 697 мс, но генерация не выдавала ни одного токена за 45 секунд.
+      // Причина — включение GPU-слоёв: в версии 0.2.0 порог памяти был
+      // 2 ГБ при 1,6 ГБ свободных, GPU не включался, и генерация шла.
+      // В 0.4.0 порог снизился, условие выполнилось — вывод пропал совсем.
+      //
+      // Для маленьких моделей выигрыш от GPU на телефоне часто нулевой,
+      // а цена — нестабильность драйверов Vulkan вплоть до полного отказа.
       const roomy = DeviceCapability(
         cores: 8,
         freeRamBytes: 8 * 1024 * 1024 * 1024,
@@ -494,7 +525,18 @@ void main() {
         gpuName: 'Adreno 740',
         recommendedGpuLayers: 16,
       );
-      expect(resolveGpuLayers(roomy, ModelCatalog.qwen25_1_5b), 16);
+      expect(resolveGpuLayers(roomy, ModelCatalog.qwen25_1_5b), 0);
+
+      // Даже на флагмане с большим запасом памяти — тоже ноль.
+      const flagship = DeviceCapability(
+        cores: 12,
+        freeRamBytes: 10 * 1024 * 1024 * 1024,
+        totalRamBytes: 16 * 1024 * 1024 * 1024,
+        vulkanSupported: true,
+        gpuName: 'Adreno 840',
+        recommendedGpuLayers: 32,
+      );
+      expect(resolveGpuLayers(flagship, ModelCatalog.qwen25_3b), 0);
     });
   });
 }
