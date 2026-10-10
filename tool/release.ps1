@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Готовит сборку к публикации: APK, контрольную сумму и текст релиза.
 
@@ -52,18 +52,26 @@ if (-not $SkipTests) {
 
     Push-Location $Root
     try {
-        Write-Host '    flutter analyze...'
-        $analyze = & flutter analyze --no-pub 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0 -or $analyze -notmatch 'No issues found') {
-            Write-Host $analyze
-            throw 'анализатор нашёл замечания — публиковать нельзя'
-        }
-        Ok 'анализатор чист'
+        # Здесь та же причина, что и при сборке: stderr от Flutter не
+        # должен ронять скрипт, важны только коды возврата.
+        $strict = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            Write-Host '    flutter analyze...'
+            $analyze = & flutter analyze --no-pub 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $analyze -notmatch 'No issues found') {
+                Write-Host $analyze
+                throw 'анализатор нашёл замечания — публиковать нельзя'
+            }
+            Ok 'анализатор чист'
 
-        Write-Host '    flutter test...'
-        & flutter test --no-pub 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'тесты не прошли — публиковать нельзя' }
-        Ok 'тесты прошли'
+            Write-Host '    flutter test...'
+            & flutter test --no-pub 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'тесты не прошли — публиковать нельзя' }
+            Ok 'тесты прошли'
+        } finally {
+            $ErrorActionPreference = $strict
+        }
     } finally {
         Pop-Location
     }
@@ -78,8 +86,24 @@ Push-Location $Root
 try {
     # --target-platform android-arm64: все современные телефоны на ARM64,
     # а сборка остальных архитектур втрое дольше и заметно больше.
-    & flutter build apk --release --target-platform android-arm64 2>&1 |
-        Select-String -Pattern 'Built|Error|error:|FAILURE' | Out-String | Write-Host
+    #
+    # $ErrorActionPreference = 'Stop' на время вызова снимаем: Flutter и
+    # Gradle пишут предупреждения в stderr, PowerShell считает их ошибками
+    # и рвёт скрипт на ровном месте. Так и случилось — предупреждение
+    # «Gradle Plugin version 8.11.1 will soon be dropped» остановило релиз
+    # после успешной сборки. Предупреждение — не повод отменять релиз, а
+    # код возврата — повод.
+    $strict = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & flutter build apk --release --target-platform android-arm64 2>&1 |
+            Select-String -Pattern 'Built|Error|error:|FAILURE|warning:' | Out-String | Write-Host
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $strict
+    }
+    if ($code -ne 0) { throw "сборка не удалась, код возврата $code" }
+    Ok 'APK собран'
 } finally {
     Pop-Location
 }

@@ -61,14 +61,30 @@ abstract final class AppRadius {
 
 ThemeData buildAppTheme() {
   const scheme = ColorScheme.dark(
-    primary: Colors.white,
+    // Раньше здесь стояло `primary: Colors.white`. В Material 3 primary —
+    // это заливка кнопок и карточек, поэтому любая стандартная кнопка или
+    // диалог без явного стиля рисовались белым прямоугольником с белым
+    // же текстом поверх него. Теперь primary тёмный, а текст на нём
+    // белый — и светлых пятен не возникает даже там, где стиль не задан.
+    primary: Color(0xFF1F1F1F),
     onPrimary: Colors.white,
-    secondary: Color(0xFFA6A6A6),
+    // secondary тоже используется как заливка (чипы, выделенные элементы),
+    // поэтому он тёмный, а не #A6A6A6. Светло-серый акцент дал бы серое
+    // пятно с белым текстом поверх.
+    secondary: Color(0xFF262626),
     onSecondary: Colors.white,
     surface: AppColors.surface,
     onSurface: AppColors.textPrimary,
+    // Поверхности Material 3 заданы явно: иначе они берутся из значений
+    // по умолчанию и не совпадают с чёрной палитрой приложения.
+    surfaceContainerLowest: Color(0xFF000000),
+    surfaceContainerLow: AppColors.bg,
+    surfaceContainer: AppColors.surface,
+    surfaceContainerHigh: AppColors.elevated,
+    surfaceContainerHighest: Color(0xFF1E1E1E),
+    surfaceTint: Colors.transparent,
     error: Colors.white,
-    onError: Colors.white,
+    onError: Color(0xFF000000),
   );
 
   final base = ThemeData(
@@ -133,6 +149,46 @@ ThemeData buildAppTheme() {
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
     ),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: AppColors.elevated,
+      surfaceTintColor: Colors.transparent,
+      // Рамка вместо заливки: окно диалога не должно быть белым пятном.
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.card,
+        side: BorderSide(color: AppColors.focus),
+      ),
+      titleTextStyle: TextStyle(
+        color: AppColors.textPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+      ),
+      contentTextStyle: TextStyle(
+        color: AppColors.textSecondary,
+        fontSize: 14,
+        height: 1.45,
+      ),
+    ),
+    listTileTheme: const ListTileThemeData(
+      textColor: AppColors.textPrimary,
+      iconColor: AppColors.textSecondary,
+    ),
+    cardTheme: const CardThemeData(
+      color: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+    ),
+    filledButtonTheme: const FilledButtonThemeData(
+      style: ButtonStyle(
+        backgroundColor: WidgetStatePropertyAll(Color(0xFF1F1F1F)),
+        foregroundColor: WidgetStatePropertyAll(Colors.white),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            side: BorderSide(color: AppColors.focus),
+          ),
+        ),
+      ),
+    ),
     sliderTheme: SliderThemeData(
       activeTrackColor: Colors.white,
       inactiveTrackColor: const Color(0x22FFFFFF),
@@ -151,7 +207,10 @@ ThemeData buildAppTheme() {
         (s) => s.contains(WidgetState.selected) ? Colors.white : const Color(0xFF8A8A8A),
       ),
       trackColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? const Color(0xFF5A5A5A) : const Color(0xFF1C1C1C),
+        // Включённый трек — тёмно-серый, а не #5A5A5A. На чёрном экране
+        // светлый трек читается как серое пятно, а человек жаловался
+        // именно на светлые прямоугольники.
+        (s) => s.contains(WidgetState.selected) ? const Color(0xFF3A3A3A) : const Color(0xFF1C1C1C),
       ),
       trackOutlineColor: WidgetStateProperty.all(AppSurfaces.border),
     ),

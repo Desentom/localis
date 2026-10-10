@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localis/core/format.dart';
+import 'package:localis/core/theme.dart';
 import 'package:localis/data/chat_message.dart';
 import 'package:localis/data/chat_store.dart';
 import 'package:localis/data/chat_window.dart';
@@ -465,18 +467,35 @@ void main() {
       // Имена взяты из официальной документации Gemini, страница обновлена
       // 9 октября 2026. Модели-предпросмотра и синонимы вида flash-latest
       // намеренно нет: они молча меняют качество ответов.
+      //
+      // Регрессия: сюда попадали имена, выдуманные по памяти. Из-за
+      // этого ключ работал, а ответы не приходили. Теперь состав
+      // каталога зафиксирован тестом.
       expect(
         CloudModel.values.map((m) => m.id).toList(),
         [
-          'gemini-3.8-flash',
-          'gemini-3.6-flash',
           'gemini-3.5-flash-lite',
+          'gemini-3.6-flash',
+          'gemini-3.8-flash',
+          'gemini-3.1-flash-lite',
         ],
       );
     });
 
+    test('первой идёт самая экономная — на бесплатном ключе лимит мал', () {
+      expect(CloudModel.values.first.id, 'gemini-3.5-flash-lite');
+      expect(CloudModel.fallback, CloudModel.values.first);
+    });
+
+    test('идентификаторы уникальны', () {
+      final ids = CloudModel.values.map((m) => m.id).toSet();
+      expect(ids.length, CloudModel.values.length);
+    });
+
     test('неизвестный идентификатор не ломает приложение', () {
-      expect(CloudModel.byId('такой-модели-нет'), CloudModel.flash36);
+      // Регрессия: на старой версии в настройках был сохранён
+      // неизвестный идентификатор, и приложение падало.
+      expect(CloudModel.byId('такой-модели-нет'), CloudModel.fallback);
       expect(CloudModel.byId('gemini-3.6-flash'), CloudModel.flash36);
     });
   });
@@ -596,6 +615,76 @@ void main() {
         recommendedGpuLayers: 32,
       );
       expect(resolveGpuLayers(flagship, ModelCatalog.qwen25_3b), 0);
+    });
+  });
+
+  group('Тема: светлых пятен быть не должно', () {
+    // Главная жалоба: при отправке вопроса на месте ответа появлялся
+    // белый прямоугольник. Проверяем то, что можно проверить в коде:
+    // ни одна поверхность темы не светлее фона приложения.
+    //
+    // Порог 0,15 — это #262626, самая светлая поверхность, которую
+    // приложение себе позволяет: карточки и поднятые панели. Всё, что
+    // светлее, на чёрном экране читается как пятно.
+    const maxSurface = 0.15;
+
+    double luminance(Color c) =>
+        0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+    final scheme = buildAppTheme().colorScheme;
+
+    test('ни одна поверхность темы не светлая', () {
+      final surfaces = <String, Color>{
+        'primary': scheme.primary,
+        'secondary': scheme.secondary,
+        'surface': scheme.surface,
+        'surfaceContainerLowest': scheme.surfaceContainerLowest,
+        'surfaceContainerLow': scheme.surfaceContainerLow,
+        'surfaceContainer': scheme.surfaceContainer,
+        'surfaceContainerHigh': scheme.surfaceContainerHigh,
+        'surfaceContainerHighest': scheme.surfaceContainerHighest,
+      };
+      surfaces.forEach((name, color) {
+        expect(
+          luminance(color),
+          lessThan(maxSurface),
+          reason: '$name слишком светлый: $color',
+        );
+      });
+    });
+
+    test('текст на тёмных поверхностях остаётся читаемым', () {
+      expect(luminance(scheme.onPrimary), greaterThan(0.6));
+      expect(luminance(scheme.onSurface), greaterThan(0.6));
+    });
+
+    test('регрессия: primary не белый', () {
+      // В Material 3 primary — это заливка. Стояло `primary: Colors.white`,
+      // и любая кнопка или диалог без явного стиля рисовались белым
+      // прямоугольником с белым текстом поверх него.
+      expect(scheme.primary, isNot(const Color(0xFFFFFFFF)));
+    });
+
+    test('регрессия: включённый тумблер не белый', () {
+      final theme = buildAppTheme();
+      final track = theme.switchTheme.trackColor!.resolve({
+        WidgetState.selected,
+      });
+      final thumb = theme.switchTheme.thumbColor!.resolve({
+        WidgetState.selected,
+      });
+      // Трек когда-то был #5A5A5A, а в настройках ему задавали белый цвет
+      // поверх темы — тумблер становился белым прямоугольником.
+      expect(luminance(track!), lessThan(0.3), reason: 'трек тумблера светлый');
+      // Ползунок остаётся белым: на тёмном треке это и есть признак «вкл».
+      expect(luminance(thumb!), greaterThan(0.6));
+    });
+
+    test('диалоги и карточки тёмные', () {
+      final theme = buildAppTheme();
+      expect(luminance(theme.dialogTheme.backgroundColor!), lessThan(maxSurface));
+      expect(luminance(theme.cardTheme.color!), lessThan(maxSurface));
+      expect(luminance(theme.snackBarTheme.backgroundColor!), lessThan(maxSurface));
     });
   });
 }

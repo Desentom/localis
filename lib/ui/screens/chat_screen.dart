@@ -93,7 +93,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? _EmptyState(
                     persona: c.persona,
                     onChip: _useChip,
-                    modelTitle: c.activeModel?.title ?? '',
+                    isCloud: c.isCloud,
+                    hasKey: c.hasApiKey,
                   )
                 : ListView.builder(
                     controller: _scroll,
@@ -114,7 +115,10 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
                             );
                           },
-                          child: MessageBubble(message: m),
+                          child: MessageBubble(
+                            message: m,
+                            speedFromCloud: c.isCloud,
+                          ),
                         );
                       }
                       if (streaming.isEmpty && !generating) return const SizedBox.shrink();
@@ -253,12 +257,14 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState({
     required this.persona,
     required this.onChip,
-    required this.modelTitle,
+    required this.isCloud,
+    required this.hasKey,
   });
 
   final Persona persona;
   final ValueChanged<String> onChip;
-  final String modelTitle;
+  final bool isCloud;
+  final bool hasKey;
 
   @override
   Widget build(BuildContext context) {
@@ -272,29 +278,46 @@ class _EmptyState extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppColors.focus, width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  blurRadius: 26,
-                  offset: const Offset(0, 8),
-                ),
-              ],
             ),
-            child: const Icon(Icons.memory_rounded, size: 31, color: Colors.white),
+            child: Icon(
+              isCloud ? Icons.cloud_outlined : Icons.memory_rounded,
+              size: 31,
+              color: Colors.white,
+            ),
           ),
         ),
         const SizedBox(height: 18),
-        const Text(
-          'Спросите что угодно',
+        Text(
+          isCloud
+              ? (hasKey ? 'Спросите что угодно' : 'Нужен ключ Gemini')
+              : 'Спросите что угодно',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.4),
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
-          'Режим: ${persona.emoji} ${persona.title}. Интернет не нужен — '
-          'всё считается на телефоне.',
+          // Текст про «всё считается на телефоне» был верен только для
+          // локального режима. В облачном режиме он прямо врал: вопросы
+          // уходят на серверы Google.
+          isCloud
+              ? (hasKey
+                    ? 'Режим: ${persona.emoji} ${persona.title}. Отвечает '
+                          'Gemini через интернет.'
+                    : 'Режим: ${persona.emoji} ${persona.title}. Откройте '
+                          'Настройки → Откуда ответ и вставьте бесплатный '
+                          'ключ из Google AI Studio.')
+              : 'Режим: ${persona.emoji} ${persona.title}. Интернет не нужен — '
+                    'всё считается на телефоне.',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5, height: 1.45),
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13.5,
+            height: 1.45,
+          ),
         ),
         const SizedBox(height: 24),
         ...persona.starterChips.map(
@@ -539,9 +562,13 @@ class _ErrorBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
       padding: const EdgeInsets.fromLTRB(13, 10, 6, 10),
       decoration: BoxDecoration(
-        color: AppColors.danger.withValues(alpha: 0.13),
+        // Раньше заливка была белой с прозрачностью 13%. На чёрном экране
+        // это давало светлое пятно — тот самый «белый прямоугольник»,
+        // который появлялся при каждой отправке, пока ключ не введён.
+        // Теперь это обычная тёмная карточка с белой рамкой.
+        color: AppColors.elevated,
         borderRadius: AppRadius.chip,
-        border: Border.all(color: AppColors.danger.withValues(alpha: 0.32)),
+        border: Border.all(color: AppColors.focus),
       ),
       child: Row(
         children: [

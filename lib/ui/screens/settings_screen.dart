@@ -144,6 +144,7 @@ class _StatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cloud = controller.isCloud;
     final model = controller.activeModel;
     final cap = controller.capability;
     final outcome = controller.loadOutcome;
@@ -161,7 +162,11 @@ class _StatusCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.focus, width: 1.5),
                 ),
-                child: const Icon(Icons.memory_rounded, size: 20, color: Colors.white),
+                child: Icon(
+                  cloud ? Icons.cloud_outlined : Icons.memory_rounded,
+                  size: 20,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -169,11 +174,27 @@ class _StatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      model?.title ?? 'Модель не выбрана',
+                      // В облачном режиме локальной модели нет вообще, и
+                      // писать «Модель не выбрана» было просто неверно:
+                      // человек думал, что приложение сломано.
+                      cloud ? controller.cloudModel.title : (model?.title ?? 'Модель не выбрана'),
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 2),
-                    const OfflineBadge(compact: true),
+                    cloud
+                        ? Text(
+                            controller.hasApiKey
+                                ? 'Отвечает через интернет · ключ введён'
+                                : 'Отвечает через интернет · нужен ключ',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: controller.hasApiKey
+                                  ? AppColors.textSecondary
+                                  : AppColors.textPrimary,
+                            ),
+                          )
+                        : const OfflineBadge(compact: true),
                   ],
                 ),
               ),
@@ -182,17 +203,24 @@ class _StatusCard extends StatelessWidget {
           const SizedBox(height: 14),
           const Divider(),
           const SizedBox(height: 12),
-          if (cap != null)
+          if (cloud)
+            _Row(
+              label: 'Откуда ответ',
+              value: controller.hasApiKey
+                  ? 'Серверы Google · ключ хранится на телефоне'
+                  : 'Ключ не введён — вопросы не уйдут',
+            )
+          else if (cap != null)
             _Row(
               label: 'Телефон',
               value: cap.summary,
             ),
-          if (outcome != null)
+          if (!cloud && outcome != null)
             _Row(
               label: 'Загрузка модели',
               value: formatDuration(outcome.loadedIn),
             ),
-          if (outcome != null && outcome.contextShrunk)
+          if (!cloud && outcome != null && outcome.contextShrunk)
             _Row(
               label: 'Контекст',
               value:
@@ -204,10 +232,16 @@ class _StatusCard extends StatelessWidget {
             value: '${controller.persona.emoji} ${controller.persona.title}',
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Все вычисления идут на этом устройстве. Ни один вопрос '
-            'не покидает телефон.',
-            style: TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.45),
+          Text(
+            // Текст про приватность тоже зависел от режима. Фраза «все
+            // вычисления идут на этом устройстве» в облачном режиме была
+            // неверной: вопрос уходит на серверы Google.
+            cloud
+                ? 'Ответы приходят из интернета. Вопросы отправляются на '
+                      'серверы Google — не пишите то, что нельзя пересылать.'
+                : 'Все вычисления идут на этом устройстве. Ни один вопрос '
+                      'не покидает телефон.',
+            style: const TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.45),
           ),
         ],
       ),
@@ -264,6 +298,55 @@ class _Section extends StatelessWidget {
           fontWeight: FontWeight.w800,
           letterSpacing: 1.1,
         ),
+      ),
+    );
+  }
+}
+
+/// Пронумерованный шаг инструкции. Нужен, чтобы человек не пропустил
+/// шаг и не вернулся с вопросом «а почему не работает».
+class _Step extends StatelessWidget {
+  const _Step({required this.n, required this.text});
+
+  final String n;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20,
+            height: 20,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.focus),
+            ),
+            child: Text(
+              n,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12.5,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -591,10 +674,13 @@ class _CloudCardState extends State<_CloudCard> {
     super.dispose();
   }
 
-  /// Ключ сохраняется только после проверки. Неверный ключ, который мы
-  /// молча положили бы в настройки, всплыл бы через минуту при первом
-  /// вопросе — и человек решил бы, что сломано приложение.
-  Future<void> _saveAndCheck() async {
+  /// Ключ сохраняется только если сервер его принял.
+///
+/// Раньше настройка записывалась в любом случае — даже если проверка
+/// провалилась. Человек закрывал экран, и в настройках лежал ключ,
+/// который не работает: приложение падало на каждом вопросе с ошибкой,
+/// которую уже не исправить, не заново получив ключ.
+Future<void> _saveAndCheck() async {
     setState(() {
       _checking = true;
       _check = null;
@@ -607,10 +693,13 @@ class _CloudCardState extends State<_CloudCard> {
     );
 
     if (!mounted) return;
-    await widget.controller.updateSettings(
-      widget.controller.settings.copyWith(geminiKey: key),
-    );
-    if (!mounted) return;
+
+    if (problem == null) {
+      await widget.controller.updateSettings(
+        widget.controller.settings.copyWith(geminiKey: key),
+      );
+      if (!mounted) return;
+    }
 
     setState(() {
       _checking = false;
@@ -629,7 +718,7 @@ class _CloudCardState extends State<_CloudCard> {
         children: [
           _ModeRow(
             title: 'Через интернет (Gemini)',
-            note: 'Работает сразу и качественно. Нужен бесплатный ключ.',
+            note: 'Отвечает быстро и качественно. Нужен один бесплатный ключ.',
             value: on,
             onChanged: (v) => c.updateSettings(
               c.settings.copyWith(cloudMode: v),
@@ -638,7 +727,8 @@ class _CloudCardState extends State<_CloudCard> {
           const SizedBox(height: 12),
           _ModeRow(
             title: 'Модель на телефоне',
-            note: 'Без интернета. Сейчас не работает стабильно — чиним.',
+            note: 'Без интернета и без ключа. На этом телефоне модель '
+                'ещё не заработала — проверяем.',
             value: !on,
             onChanged: (v) => c.updateSettings(
               c.settings.copyWith(cloudMode: !v),
@@ -647,22 +737,65 @@ class _CloudCardState extends State<_CloudCard> {
 
           if (on) ...[
             const SizedBox(height: 18),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Ключ Gemini',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Pill(
+                  label: c.hasApiKey ? 'введён' : 'не введён',
+                  icon: c.hasApiKey
+                      ? Icons.check_circle_rounded
+                      : Icons.error_outline_rounded,
+                  color: c.hasApiKey ? Colors.white : AppColors.textSecondary,
+                  dense: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             const Text(
-              'Ключ Gemini',
-              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+              'Бесплатный ключ — без карты и без оплаты. Три шага:',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const _Step(
+              n: '1',
+              text: 'Откройте в браузере телефона:',
             ),
             const SizedBox(height: 4),
+            const Padding(
+              padding: EdgeInsets.only(left: 30),
+              child: SelectableText(
+                'aistudio.google.com/apikey',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  decoration: TextDecoration.underline,
+                  decorationColor: AppColors.textFaint,
+                ),
+              ),
+            ),
+            const _Step(n: '2', text: 'Нажмите «Create API key» — согласитесь с условиями.'),
+            const _Step(n: '3', text: 'Скопируйте ключ, начинающийся с AIza, и вставьте ниже.'),
+            const SizedBox(height: 10),
             const Text(
-              'Получите бесплатно: aistudio.google.com → Get API key. '
-              'Ключ хранится только на этом телефоне и уходит единственный '
-              'раз — на серверы Google. Не публикуйте его.',
+              'Ключ хранится только на этом телефоне и уходит единственный раз '
+              '— на серверы Google. Не публикуйте его.',
               style: TextStyle(
                 color: AppColors.textFaint,
                 fontSize: 11.5,
                 height: 1.45,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -813,8 +946,10 @@ class _ModeRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: Colors.white,
-            activeTrackColor: Colors.white,
+            // Цвета переключателя заданы в теме. Раньше здесь стояло
+            // `activeTrackColor: Colors.white` вместе с белым же
+            // ползунком — включённый тумблер превращался в белый
+            // прямоугольник, а ползунок на нём не было видно.
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -869,10 +1004,27 @@ class _CloudHint extends StatelessWidget {
               controller.settings.copyWith(maxTokens: v.round()),
             ),
           ),
+          const SizedBox(height: 4),
+          // Раньше температура в облачном режиме не отправлялась вовсе,
+          // поэтому ползунок прятали. Теперь она уходит в Gemini как
+          // generationConfig.temperature и реально влияет на ответ.
+          _Slider(
+            title: 'Свобода ответа',
+            hint: 'Ниже — факты и повторение. Выше — живой текст, но иногда '
+                'с выдумками.',
+            value: controller.settings.temperature,
+            min: 0,
+            max: 1.2,
+            steps: 11,
+            format: (v) => v.toStringAsFixed(1).replaceAll('.', ','),
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(temperature: v),
+            ),
+          ),
           const SizedBox(height: 6),
           const Text(
-            'Температуру и размер контекста задаёт сам сервис: облачная '
-            'модель помнит больше и отвечает свободнее, чем локальная.',
+            'Размер контекста в облачном режиме задаёт сам сервис: облачная '
+            'модель помнит намного больше, чем модель на телефоне.',
             style: TextStyle(
               color: AppColors.textFaint,
               fontSize: 11.3,

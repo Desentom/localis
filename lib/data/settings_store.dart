@@ -21,7 +21,7 @@ class AppSettings {
     this.onboardingSeen = false,
     this.cloudMode = true,
     this.geminiKey = '',
-    this.cloudModelId = 'gemini-3.6-flash',
+    this.cloudModelId = 'gemini-3.5-flash-lite',
   });
 
   /// null = подбирать автоматически по телефону.
@@ -133,7 +133,7 @@ class AppSettings {
     onboardingSeen: j['onboardingSeen'] as bool? ?? false,
     cloudMode: j['cloudMode'] as bool? ?? true,
     geminiKey: j['geminiKey'] as String? ?? '',
-    cloudModelId: j['cloudModelId'] as String? ?? 'gemini-3.6-flash',
+    cloudModelId: j['cloudModelId'] as String? ?? 'gemini-3.5-flash-lite',
   );
 
   Map<String, dynamic> toCache() => toJson();

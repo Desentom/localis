@@ -15,21 +15,32 @@ class MessageBubble extends StatelessWidget {
     required this.message,
     super.key,
     this.streaming = false,
+    this.speedFromCloud = false,
   });
 
   final ChatMessage message;
   final bool streaming;
 
+  /// Ответ пришёл из облака: там движок отдаёт символы в секунду, а не
+  /// токены, и считает их не на телефоне. Подпись обязана это отражать —
+  /// иначе она просто врёт.
+  final bool speedFromCloud;
+
   @override
   Widget build(BuildContext context) {
     final isUser = message.isUser;
 
-    // Пустой или состоящий из одних пробелов ответ никогда не рисуется.
-    // Раньше такой текст превращался в светлый прямоугольник во весь
-    // экран, и человек не мог понять, что произошло. Теперь вместо
-    // этого — короткое объяснение.
-    final blank = message.text.trim().isEmpty;
-    if (blank && !streaming) {
+    // Пустой ответ никогда не рисуется. Раньше такой текст превращался в
+    // светлый прямоугольник на месте ответа, и человек не мог понять, что
+    // произошло.
+    //
+    // Пока ответ ещё не пришёл, но запрос уже ушёл, показываем явную
+    // метку «Печатает…» — тёмную, с точками. Раньше на этом месте
+    // рисовался пустой пузырь с чисто белым мигающим прямоугольником
+    // 7×15 пикселей: на чёрном экране он и был тем самым белым
+    // прямоугольником, о котором сообщали.
+    if (message.text.trim().isEmpty) {
+      if (streaming) return const _TypingBubble();
       return const Padding(
         padding: EdgeInsets.only(bottom: 14),
         child: _EmptyNotice(),
@@ -108,7 +119,9 @@ class MessageBubble extends StatelessWidget {
                           ),
                           const SizedBox(width: 3),
                           Text(
-                            '${message.tokensPerSecond!.toStringAsFixed(1).replaceAll('.', ',')} ток/с · у вас на телефоне',
+                            speedFromCloud
+                                ? '${message.tokensPerSecond!.toStringAsFixed(0)} симв./с · через интернет'
+                                : '${message.tokensPerSecond!.toStringAsFixed(1).replaceAll('.', ',')} ток/с · у вас на телефоне',
                             style: const TextStyle(
                               fontSize: 10.5,
                               color: AppColors.textFaint,
@@ -179,7 +192,11 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// Мигающий курсор в конце дописываемого текста.
+/// Курсор в конце дописываемого текста.
+///
+/// Раньше он был чисто белым — на чёрном экране это выглядело как тот самый
+/// белый прямоугольник на месте ответа. Теперь он приглушённый: роль
+/// курсора сохраняется, а светлого пятна на экране нет.
 class _Caret extends StatefulWidget {
   const _Caret();
 
@@ -204,13 +221,97 @@ class _CaretState extends State<_Caret> with SingleTickerProviderStateMixin {
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) => Container(
-        width: 7,
-        height: 15,
-        margin: const EdgeInsets.only(left: 3, top: 3),
+        width: 2.5,
+        height: 14,
+        margin: const EdgeInsets.only(left: 3, top: 2),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.4 + 0.6 * _c.value),
-          borderRadius: BorderRadius.circular(2),
+          color: AppColors.textFaint.withValues(alpha: 0.45 + 0.55 * _c.value),
+          borderRadius: BorderRadius.circular(1.5),
         ),
+      ),
+    );
+  }
+}
+
+/// Запрос ушёл, ответа ещё нет.
+///
+/// Раньше на этом месте рисовался пустой пузырь с белым курсором. Теперь
+/// это тёмный пузырь с тремя точками и подписью: видно, что приложение
+/// работает, и не нужно гадать, не сломалось ли что-то.
+class _TypingBubble extends StatefulWidget {
+  const _TypingBubble();
+
+  @override
+  State<_TypingBubble> createState() => _TypingBubbleState();
+}
+
+class _TypingBubbleState extends State<_TypingBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          const _Avatar(),
+          const SizedBox(width: 9),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+            decoration: BoxDecoration(
+              color: AppSurfaces.bubbleModel,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+                bottomRight: Radius.circular(20),
+                bottomLeft: Radius.circular(6),
+              ),
+              border: Border.all(color: AppSurfaces.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedBuilder(
+                  animation: _c,
+                  builder: (context, _) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(3, (i) {
+                      // Точки ходят по кругу — анимация без картинок.
+                      final phase = (_c.value * 3 - i) % 3;
+                      final lift = phase < 1 ? phase : (phase < 2 ? 2 - phase : 0.0);
+                      return Padding(
+                        padding: EdgeInsets.only(right: i == 2 ? 9 : 4, bottom: lift * 3),
+                        child: Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: AppColors.textFaint,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                const Text(
+                  'Печатает…',
+                  style: TextStyle(color: AppColors.textFaint, fontSize: 13.5),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -21,14 +21,20 @@ class CloudError implements Exception {
 
 /// Модели Gemini, доступные в приложении.
 ///
-/// Список взят из официальной документации (страница обновлена
-/// 9 октября 2026). Заглушка `flash-latest` намеренно не используется:
-/// она молча подменяется на новую версию, а значит ответы и качество
-/// меняются без предупреждения — для учебного приложения это плохо.
+/// Список сверен с официальной документацией Google (страница обновлена
+/// 9 октября 2026) — идентификаторы проверены по ней, а не по памяти.
+/// Заглушка `flash-latest` намеренно не используется: она молча
+/// подменяется на новую версию, а значит ответы и качество меняются без
+/// предупреждения.
+///
+/// Порядок объявления — это порядок показа в настройках. Первым идёт
+/// Flash-Lite: на бесплатном ключе лимиты маленькие, и самая дешёвая и
+/// быстрая модель расходует их медленнее всего.
 enum CloudModel {
-  flash38('gemini-3.8-flash', 'Gemini 3.8 Flash', 'Самое сильное в линейке Flash'),
+  flashLite('gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite', 'Самая экономная — меньше всего тратит бесплатный лимит'),
   flash36('gemini-3.6-flash', 'Gemini 3.6 Flash', 'Быстро и универсально'),
-  flashLite('gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite', 'Быстрее всего и экономнее');
+  flash38('gemini-3.8-flash', 'Gemini 3.8 Flash', 'Самое сильное в линейке Flash'),
+  flashLite31('gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite', 'Уровень фронтир, очень дёшево');
 
   const CloudModel(this.id, this.title, this.note);
 
@@ -36,8 +42,11 @@ enum CloudModel {
   final String title;
   final String note;
 
+  /// Модель по умолчанию. Совпадает с первой в списке.
+  static const CloudModel fallback = flashLite;
+
   static CloudModel byId(String id) =>
-      CloudModel.values.firstWhere((m) => m.id == id, orElse: () => CloudModel.flash36);
+      CloudModel.values.firstWhere((m) => m.id == id, orElse: () => fallback);
 }
 
 /// Клиент Gemini API.
@@ -46,12 +55,37 @@ enum CloudModel {
 /// только на телефоне. Вшивать ключ в сборку нельзя — его тогда сможет
 /// достать кто угодно, распаковав APK, и тратить чужую квоту.
 class CloudEngine {
-  CloudEngine({http.Client? client})
-    : _client = client ?? http.Client();
+  CloudEngine({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
 
+  /// Отдельный клиент для текущего запроса. Отдельный — потому что
+  /// остановить генерацию можно только разорвав соединение: у потока
+  /// ответа нет «стоп», есть закрытый сокет.
+  http.Client? _active;
+
   static const _base = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+  /// Сколько ждать первых байт ответа.
+  static const _connectTimeout = Duration(seconds: 30);
+
+  /// Сколько ждать следующий кусок, когда ответ уже пошёл.
+  ///
+  /// Без этого проверки зависает только ожидание заголовков, а дальше
+  /// поток может молчать вечно: приложение выглядит «думает», кнопка
+  /// «стоп» нажимается, а ответа нет. Сто секунд — дольше любой
+  /// задержки между кусками на живом ответе, но короче вечного ожидания.
+  static const _stallTimeout = Duration(seconds: 100);
+
+  /// Оборвать текущий запрос, если он идёт.
+  ///
+  /// Вызывается кнопкой «стоп». Закрытие клиента разрывает соединение,
+  /// и поток отдаёт ошибку, которую [_stream] превращает в обычное
+  /// «остановлено», а не в сообщение о сбое.
+  void cancel() {
+    _active?.close();
+    _active = null;
+  }
 
   /// Потоковый ответ. Отдаёт куски текста, последним — [CloudDone].
   ///
@@ -63,11 +97,12 @@ class CloudEngine {
     required String systemPrompt,
     required List<app.ChatMessage> history,
     required int maxTokens,
+    double temperature = 0.7,
   }) async* {
     if (apiKey.trim().isEmpty) {
       throw CloudError(
-        'Не задан ключ Gemini. Откройте «Настройки → Ответы через '
-        'интернет» и вставьте ключ из Google AI Studio.',
+        'Не задан ключ Gemini. Откройте «Настройки → Откуда ответ» '
+        'и вставьте ключ из Google AI Studio.',
       );
     }
 
@@ -97,9 +132,11 @@ class CloudEngine {
         },
       'generationConfig': {
         'maxOutputTokens': maxTokens,
+        'temperature': temperature,
       },
     };
 
+    final client = _active = http.Client();
     final request = http.Request('POST', uri)
       ..headers['content-type'] = 'application/json'
       ..headers['x-goog-api-key'] = apiKey.trim()
@@ -107,19 +144,20 @@ class CloudEngine {
 
     http.StreamedResponse response;
     try {
-      response = await _client.send(request).timeout(
-        const Duration(seconds: 30),
-      );
+      response = await client.send(request).timeout(_connectTimeout);
     } on TimeoutException {
+      _release();
       throw CloudError(
         'Сервер не отвечает дольше 30 секунд. Проверьте интернет.',
       );
     } on http.ClientException catch (e) {
+      _release();
       throw CloudError('Связь с сервером прервана: ${e.message}');
     }
 
     if (response.statusCode != 200) {
       final text = await response.stream.bytesToString();
+      _release();
       throw CloudError(_explain(response.statusCode, text));
     }
 
@@ -127,20 +165,45 @@ class CloudEngine {
     var chars = 0;
     var pieces = 0;
 
-    await for (final line in response.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())) {
-      if (!line.startsWith('data:')) continue;
-      final payload = line.substring(5).trim();
-      if (payload.isEmpty || payload == '[DONE]') continue;
+    try {
+      await for (final line in response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .timeout(
+            _stallTimeout,
+            onTimeout: (sink) {
+              sink.addError(
+                CloudError(
+                  'Ответ остановился на ${_stallTimeout.inSeconds} секунд. '
+                  'Сервис, скорее всего, перегружен — попробуйте ещё раз.',
+                ),
+              );
+              sink.close();
+            },
+          )) {
+        if (!line.startsWith('data:')) continue;
+        final payload = line.substring(5).trim();
+        if (payload.isEmpty || payload == '[DONE]') continue;
 
-      final decoded = _decodeChunk(payload);
-      if (decoded == null || decoded.isEmpty) continue;
+        final decoded = _decodeChunk(payload);
+        if (decoded == null || decoded.isEmpty) continue;
 
-      chars += decoded.length;
-      pieces++;
-      yield CloudText(decoded);
+        chars += decoded.length;
+        pieces++;
+        yield CloudText(decoded);
+      }
+    } on CloudError {
+      _release();
+      rethrow;
+    } on http.ClientException {
+      // Соединение закрыли мы сами — это кнопка «стоп», а не поломка.
+      _release();
+      throw CloudError('Остановлено.');
+    } on Object catch (e) {
+      _release();
+      throw CloudError('Ответ прерван: $e');
     }
+    _release();
 
     if (pieces == 0) {
       throw CloudError(
@@ -150,6 +213,11 @@ class CloudEngine {
     }
 
     yield CloudDone(CloudStats(DateTime.now().difference(started), chars, pieces));
+  }
+
+  void _release() {
+    _active?.close();
+    _active = null;
   }
 
   /// Проверка ключа: один короткий запрос к карточке модели.
@@ -231,9 +299,9 @@ class CloudEngine {
             'без пробелов. ${_trim(detail)}',
       401 || 403 =>
         'Ключ отклонён. Чаще всего он недействителен или для этого ключа '
-            'выключен Gemini API. ${_trim(detail)}',
+            'не включён Gemini API. ${_trim(detail)}',
       404 =>
-        'Модель ${_trim(detail)} недоступна для этого ключа.',
+        'Модель недоступна для этого ключа. ${_trim(detail)}',
       429 =>
         'Лимит запросов исчерпан. У бесплатного ключа он небольшой — '
             'подождите немного.',
@@ -244,7 +312,10 @@ class CloudEngine {
 
   static String _trim(String s) => s.trim().isEmpty ? '' : 'Подробности: ${s.trim()}';
 
-  void close() => _client.close();
+  void close() {
+    _release();
+    _client.close();
+  }
 }
 
 /// События облачного движка.

@@ -84,6 +84,19 @@ class AppController extends ChangeNotifier {
 
   bool _pendingGeneration = false;
 
+  /// Как часто интерфейс перерисовывается во время ответа.
+  ///
+  /// 12 раз в секунду — чаще глаз не различает, а на слабом телефоне
+  /// каждая лишняя перерисовка стоит кадра. Смысл троттлинга не в
+  /// экономии, а в том, чтобы GPU успевал: не успевает — Android
+  /// показывает неотрисованные тайлы, и человек видит светлый
+  /// прямоугольник на месте текста.
+  static const _paintIntervalMs = 1000 ~/ 12;
+
+  /// Человек нажал «стоп». Отличаем это от поломки, чтобы не пугать
+  /// сообщением об ошибке то, что он и так остановил сам.
+  bool _stopped = false;
+
   double? _liveTokensPerSecond;
   double? get liveTokensPerSecond => _liveTokensPerSecond;
 
@@ -392,6 +405,7 @@ class AppController extends ChangeNotifier {
     final startedAt = DateTime.now();
     String? failure;
     _lastRawOutput = '';
+    _stopped = false;
 
     final systemPrompt = buildSystemPrompt(
       personaPrompt: persona.prompt,
@@ -400,6 +414,15 @@ class AppController extends ChangeNotifier {
       spec: null,
     );
 
+    // Перерисовка на каждом куске — главная причина «серых тайлов» на
+    // слабом телефоне. Google шлёт куски часто, и каждый вызов
+    // notifyListeners() перестраивает весь список сообщений. Раньше на
+    // слабом GPU растеризация не успевала, и Android показывал
+    // неотрисованные прямоугольники. Поэтому интерфейс обновляется не
+    // чаще 12 раз в секунду — глаз эту разницу не видит, а кадров
+    // тратится в четыре раза меньше.
+    var lastPaint = DateTime.fromMillisecondsSinceEpoch(0);
+
     try {
       final stream = cloud.streamAnswer(
         model: cloudModel,
@@ -407,6 +430,7 @@ class AppController extends ChangeNotifier {
         systemPrompt: systemPrompt,
         history: _session.messages,
         maxTokens: _settings.maxTokens,
+        temperature: _settings.temperature,
       );
 
       await for (final event in stream) {
@@ -420,7 +444,11 @@ class AppController extends ChangeNotifier {
           case CloudDone(:final stats):
             _cloudStats = stats;
         }
-        notifyListeners();
+        final now = DateTime.now();
+        if (now.difference(lastPaint).inMilliseconds >= _paintIntervalMs) {
+          lastPaint = now;
+          notifyListeners();
+        }
       }
 
       final text = buffer.toString().trim();
@@ -429,10 +457,13 @@ class AppController extends ChangeNotifier {
       _pendingGeneration = false;
       _liveTokensPerSecond = null;
 
-      if (text.isEmpty) {
-        failure ??= 'Сервис вернул пустой ответ.';
-      } else {
+      if (text.isNotEmpty) {
         _appendAssistant(text, _cloudStats?.charsPerSecond ?? 0);
+      } else if (_stopped) {
+        // Человек нажал «стоп» — это не ошибка, показывать нечего.
+        _error = null;
+      } else {
+        failure ??= 'Сервис вернул пустой ответ.';
       }
       _error = failure;
       notifyListeners();
@@ -442,14 +473,15 @@ class AppController extends ChangeNotifier {
       _streaming = '';
       _pendingGeneration = false;
       _liveTokensPerSecond = null;
-      _error = e.message;
+      // «Остановлено» — это следствие нажатия «стоп», а не поломка.
+      _error = _stopped ? null : e.message;
       notifyListeners();
       return false;
     } on Object catch (e) {
       _streaming = '';
       _pendingGeneration = false;
       _liveTokensPerSecond = null;
-      _error = 'Ошибка сети: $e';
+      _error = _stopped ? null : 'Ошибка сети: $e';
       notifyListeners();
       return false;
     }
@@ -593,7 +625,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> stopGeneration() async {
-    if (isCloud) return;
+    _stopped = true;
+    if (isCloud) {
+      // У потока ответа нет «стоп» — соединение надо разорвать.
+      cloud.cancel();
+      return;
+    }
     await engine.stop();
   }
 
