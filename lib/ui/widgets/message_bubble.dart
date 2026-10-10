@@ -23,6 +23,19 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.isUser;
+
+    // Пустой или состоящий из одних пробелов ответ никогда не рисуется.
+    // Раньше такой текст превращался в светлый прямоугольник во весь
+    // экран, и человек не мог понять, что произошло. Теперь вместо
+    // этого — короткое объяснение.
+    final blank = message.text.trim().isEmpty;
+    if (blank && !streaming) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 14),
+        child: _EmptyNotice(),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
@@ -111,6 +124,40 @@ class MessageBubble extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EmptyNotice extends StatelessWidget {
+  const _EmptyNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Avatar(),
+        const SizedBox(width: 9),
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppSurfaces.bubbleModel,
+              borderRadius: AppRadius.bubble,
+              border: Border.all(color: AppSurfaces.border),
+            ),
+            child: const Text(
+              'Модель не вернула ни одного слова. Обычно это значит, что '
+              'сервис не понял формат диалога или ответ был отфильтрован.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12.5,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

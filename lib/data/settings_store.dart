@@ -19,6 +19,9 @@ class AppSettings {
     this.threads = 0,
     this.thinkMode = false,
     this.onboardingSeen = false,
+    this.cloudMode = true,
+    this.geminiKey = '',
+    this.cloudModelId = 'gemini-3.6-flash',
   });
 
   /// null = подбирать автоматически по телефону.
@@ -43,6 +46,21 @@ class AppSettings {
 
   final bool onboardingSeen;
 
+  /// Отвечать через облако, а не через локальную модель.
+  ///
+  /// Включено по умолчанию. Локальный движок на телефоне не прошёл
+  /// проверку: на восьми попытках модель либо выдавала пустоту, либо не
+  /// отвечала вовсе. Облако работает предсказуемо, и именно на нём
+  /// сейчас проверяется интерфейс — после этого локальный режим можно
+  /// будет чинить.
+  final bool cloudMode;
+
+  /// Ключ Gemini. Вводится человеком, хранится только на телефоне и
+  /// уходит ровно в одно место — на серверы Google.
+  final String geminiKey;
+
+  final String cloudModelId;
+
   /// Число потоков вычислений. 0 = «определи по телефону» — фактическое
   /// количество ядер знает DeviceCapability, а не эта настройка.
   int get resolvedThreads => threads > 0 ? threads : 4;
@@ -61,6 +79,9 @@ class AppSettings {
     int? threads,
     bool? thinkMode,
     bool? onboardingSeen,
+    bool? cloudMode,
+    String? geminiKey,
+    String? cloudModelId,
   }) => AppSettings(
     modelId: clearModelId ? null : (modelId ?? this.modelId),
     personaId: personaId ?? this.personaId,
@@ -74,6 +95,9 @@ class AppSettings {
     threads: threads ?? this.threads,
     thinkMode: thinkMode ?? this.thinkMode,
     onboardingSeen: onboardingSeen ?? this.onboardingSeen,
+    cloudMode: cloudMode ?? this.cloudMode,
+    geminiKey: geminiKey ?? this.geminiKey,
+    cloudModelId: cloudModelId ?? this.cloudModelId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -89,6 +113,9 @@ class AppSettings {
     'threads': threads,
     'thinkMode': thinkMode,
     'onboardingSeen': onboardingSeen,
+    'cloudMode': cloudMode,
+    'geminiKey': geminiKey,
+    'cloudModelId': cloudModelId,
   };
 
   static AppSettings fromJson(Map<String, dynamic> j) => AppSettings(
@@ -104,6 +131,9 @@ class AppSettings {
     threads: (j['threads'] as num?)?.toInt() ?? 0,
     thinkMode: j['thinkMode'] as bool? ?? false,
     onboardingSeen: j['onboardingSeen'] as bool? ?? false,
+    cloudMode: j['cloudMode'] as bool? ?? true,
+    geminiKey: j['geminiKey'] as String? ?? '',
+    cloudModelId: j['cloudModelId'] as String? ?? 'gemini-3.6-flash',
   );
 
   Map<String, dynamic> toCache() => toJson();

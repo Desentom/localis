@@ -5,6 +5,7 @@ import 'package:localis/data/chat_store.dart';
 import 'package:localis/data/chat_window.dart';
 import 'package:localis/data/model_spec.dart';
 import 'package:localis/services/device_capability.dart';
+import 'package:localis/services/cloud_engine.dart';
 import 'package:localis/services/engine_service.dart';
 import 'package:localis/ui/screens/settings_screen.dart' show contextOptions;
 
@@ -456,6 +457,64 @@ void main() {
         sanitizeModelOutput('Сравни: a <|b|> и c'),
         'Сравни: a  и c',
       );
+    });
+  });
+
+  group('CloudModel', () {
+    test('в каталоге только реально существующие модели', () {
+      // Имена взяты из официальной документации Gemini, страница обновлена
+      // 9 октября 2026. Модели-предпросмотра и синонимы вида flash-latest
+      // намеренно нет: они молча меняют качество ответов.
+      expect(
+        CloudModel.values.map((m) => m.id).toList(),
+        [
+          'gemini-3.8-flash',
+          'gemini-3.6-flash',
+          'gemini-3.5-flash-lite',
+        ],
+      );
+    });
+
+    test('неизвестный идентификатор не ломает приложение', () {
+      expect(CloudModel.byId('такой-модели-нет'), CloudModel.flash36);
+      expect(CloudModel.byId('gemini-3.6-flash'), CloudModel.flash36);
+    });
+  });
+
+  group('CloudEngine разбор потока', () {
+    test('достаёт текст из кучка потока', () {
+      const chunk =
+          '{"candidates":[{"content":{"parts":[{"text":"Привет"}],'
+          '"role":"model"}}],"usageMetadata":{"totalTokenCount":5}}';
+      expect(CloudEngine.decodeChunk(chunk), 'Привет');
+    });
+
+    test('склеивает несколько частей в одном кучке', () {
+      const chunk =
+          '{"candidates":[{"content":{"parts":['
+          '{"text":"При"},{"text":"вет"}]}}]}';
+      expect(CloudEngine.decodeChunk(chunk), 'Привет');
+    });
+
+    test('кучки без текста игнорируются, а не роняют разбор', () {
+      expect(CloudEngine.decodeChunk('{"usageMetadata":{}}'), isNull);
+      expect(CloudEngine.decodeChunk('{"candidates":[]}'), isNull);
+      expect(CloudEngine.decodeChunk('не json вовсе'), isNull);
+    });
+  });
+
+  group('CloudEngine объяснение ошибок', () {
+    test('неверный ключ объясняется по-человечески', () {
+      const body = '{"error":{"message":"API key not valid."}}';
+      final text = CloudEngine.explain(400, body);
+      expect(text, contains('Ключ не принят'));
+      expect(text, contains('без пробелов'));
+    });
+
+    test('отклонённый ключ и лимит различаются', () {
+      expect(CloudEngine.explain(403, '{}'), contains('Ключ отклонён'));
+      expect(CloudEngine.explain(429, '{}'), contains('Лимит запросов'));
+      expect(CloudEngine.explain(503, '{}'), contains('временно недоступен'));
     });
   });
 

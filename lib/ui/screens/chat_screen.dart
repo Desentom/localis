@@ -11,7 +11,6 @@ import '../widgets/aurora_background.dart';
 import '../widgets/message_bubble.dart';
 import 'history_sheet.dart';
 import 'settings_screen.dart';
-import 'splash_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({required this.controller, super.key});
@@ -170,7 +169,6 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final model = controller.activeModel;
     final busy = controller.isGenerating;
 
     return AppBar(
@@ -185,7 +183,11 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppColors.focus, width: 1.5),
             ),
-            child: const Icon(Icons.memory_rounded, size: 18, color: Colors.white),
+            child: Icon(
+              controller.isCloud ? Icons.cloud_outlined : Icons.memory_rounded,
+              size: 18,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -194,7 +196,7 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  model?.title ?? 'Модель не выбрана',
+                  controller.engineTitle,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -203,7 +205,16 @@ class _TopBar extends StatelessWidget implements PreferredSizeWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
-                const OfflineBadge(compact: true),
+                Text(
+                  controller.engineSubtitle,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                    color: AppColors.textSecondary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),

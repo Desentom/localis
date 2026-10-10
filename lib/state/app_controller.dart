@@ -11,6 +11,7 @@ import '../data/model_spec.dart';
 import '../data/personas.dart';
 import '../data/settings_store.dart';
 import '../services/auth_service.dart';
+import '../services/cloud_engine.dart';
 import '../services/device_capability.dart';
 import '../services/engine_service.dart';
 import '../services/model_downloader.dart';
@@ -41,6 +42,11 @@ class AppController extends ChangeNotifier {
   final ModelDownloader downloader;
   final EngineService engine;
   final AuthService auth;
+
+  /// Облачный движок. Создаётся лениво: он нужен только в облачном
+  /// режиме, а держать открытый HTTP-клиент без надобности незачем.
+  CloudEngine? _cloud;
+  CloudEngine get cloud => _cloud ??= CloudEngine();
 
   AppPhase _phase = AppPhase.starting;
   AppPhase get phase => _phase;
@@ -110,6 +116,21 @@ class AppController extends ChangeNotifier {
     return ModelCatalog.recommend(ram, userPinned: _settings.modelId);
   }
 
+  bool get isCloud => _settings.cloudMode;
+  CloudModel get cloudModel => CloudModel.byId(_settings.cloudModelId);
+  String get geminiKey => _settings.geminiKey;
+  bool get hasApiKey => _settings.geminiKey.trim().isNotEmpty;
+
+  /// Что показать в шапке приложения.
+  String get engineTitle => isCloud
+      ? hasApiKey
+            ? cloudModel.title
+            : 'Нужен ключ Gemini'
+      : (_activeModel?.title ?? 'Модель не выбрана');
+
+  String get engineSubtitle =>
+      isCloud ? 'Через интернет' : 'Полностью на вашем телефоне · без сети';
+
   /// Контекст, который реально выдан движку: запрошенный, если памяти
   /// хватило, и ужатый под память — если нет.
   int get effectiveContextSize =>
@@ -141,6 +162,17 @@ class AppController extends ChangeNotifier {
       }
 
       await _refreshInstalled();
+
+      // В облачном режиме локальная модель не нужна вообще: ни памяти,
+      // ни файла, ни экрана выбора. Это и есть смысл перехода — проверить
+      // интерфейс и сам диалог, убрав из уравнения локальный движок.
+      if (isCloud) {
+        _activeModel = null;
+        _loadOutcome = null;
+        _phase = AppPhase.ready;
+        notifyListeners();
+        return;
+      }
 
       final pinned = _settings.modelId;
       final candidate = pinned != null
@@ -335,8 +367,12 @@ class AppController extends ChangeNotifier {
   ///
   /// Возвращает true, если ответ получен полностью.
   Future<bool> send(String text) async {
-    final model = _activeModel;
-    if (model == null || _pendingGeneration) return false;
+    if (_pendingGeneration) return false;
+
+    // В облачном режиме локальная модель не нужна — и не должна быть
+    // обязательной. Поэтому проверка «модель выбрана» есть только у
+    // локального пути.
+    if (!isCloud && _activeModel == null) return false;
 
     appendUserMessage(text);
     _streaming = '';
@@ -344,6 +380,111 @@ class AppController extends ChangeNotifier {
     _liveTokensPerSecond = null;
     notifyListeners();
 
+    if (isCloud) {
+      return _askCloud(text);
+    }
+    return _askLocal(text);
+  }
+
+  /// Путь через Gemini.
+  Future<bool> _askCloud(String question) async {
+    final buffer = StringBuffer();
+    final startedAt = DateTime.now();
+    String? failure;
+    _lastRawOutput = '';
+
+    final systemPrompt = buildSystemPrompt(
+      personaPrompt: persona.prompt,
+      customPrompt: _settings.customSystemPrompt,
+      thinkMode: _settings.thinkMode,
+      spec: null,
+    );
+
+    try {
+      final stream = cloud.streamAnswer(
+        model: cloudModel,
+        apiKey: geminiKey,
+        systemPrompt: systemPrompt,
+        history: _session.messages,
+        maxTokens: _settings.maxTokens,
+      );
+
+      await for (final event in stream) {
+        switch (event) {
+          case CloudText(:final text):
+            buffer.write(text);
+            _streaming = buffer.toString();
+            final seconds =
+                DateTime.now().difference(startedAt).inMilliseconds / 1000;
+            if (seconds > 0.2) _liveTokensPerSecond = buffer.length / seconds;
+          case CloudDone(:final stats):
+            _cloudStats = stats;
+        }
+        notifyListeners();
+      }
+
+      final text = buffer.toString().trim();
+      _lastRawOutput = buffer.toString();
+      _streaming = '';
+      _pendingGeneration = false;
+      _liveTokensPerSecond = null;
+
+      if (text.isEmpty) {
+        failure ??= 'Сервис вернул пустой ответ.';
+      } else {
+        _appendAssistant(text, _cloudStats?.charsPerSecond ?? 0);
+      }
+      _error = failure;
+      notifyListeners();
+      return failure == null;
+    } on CloudError catch (e) {
+      _lastRawOutput = buffer.toString();
+      _streaming = '';
+      _pendingGeneration = false;
+      _liveTokensPerSecond = null;
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } on Object catch (e) {
+      _streaming = '';
+      _pendingGeneration = false;
+      _liveTokensPerSecond = null;
+      _error = 'Ошибка сети: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  CloudStats? _cloudStats;
+
+  /// Облачный клиент доступен и контроллеру, и экрану настроек: там
+  /// ключ проверяется до первого вопроса.
+  CloudEngine get cloudClient => cloud;
+
+  void _appendAssistant(String text, double charsPerSecond) {
+    _session = ChatSession(
+      id: _session.id,
+      title: _session.title,
+      messages: [
+        ..._session.messages,
+        ChatMessage(
+          role: Role.assistant,
+          text: text,
+          createdAt: DateTime.now(),
+          tokensPerSecond: charsPerSecond,
+        ),
+      ],
+      updatedAt: DateTime.now(),
+      modelId: cloudModel.id,
+    );
+    chatStore.save(_session);
+    settingsStore.rememberChatState(_session);
+  }
+
+  /// Путь через локальную модель на телефоне.
+  Future<bool> _askLocal(String question) async {
+    final model = _activeModel!;
+    final startedAt = DateTime.now();
     final systemPrompt = buildSystemPrompt(
       personaPrompt: persona.prompt,
       customPrompt: _settings.customSystemPrompt,
@@ -352,7 +493,6 @@ class AppController extends ChangeNotifier {
     );
 
     final buffer = StringBuffer();
-    final startedAt = DateTime.now();
     GenerationStats? finalStats;
     String? failure;
     _lastRawOutput = '';
@@ -444,21 +584,7 @@ class AppController extends ChangeNotifier {
       _liveTokensPerSecond = null;
 
       if (partial.isNotEmpty) {
-        _session = ChatSession(
-          id: _session.id,
-          title: _session.title,
-          messages: [
-            ..._session.messages,
-            ChatMessage(
-              role: Role.assistant,
-              text: partial,
-              createdAt: DateTime.now(),
-            ),
-          ],
-          updatedAt: DateTime.now(),
-          modelId: model.id,
-        );
-        chatStore.save(_session);
+        _appendAssistant(partial, 0);
       }
       _error = 'Ошибка генерации: $e';
       notifyListeners();
@@ -467,6 +593,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> stopGeneration() async {
+    if (isCloud) return;
     await engine.stop();
   }
 
@@ -495,6 +622,7 @@ class AppController extends ChangeNotifier {
   void dispose() {
     downloader.close();
     engine.dispose();
+    _cloud?.close();
     super.dispose();
   }
 }

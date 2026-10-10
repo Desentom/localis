@@ -7,6 +7,7 @@ import '../../core/version.dart';
 import '../../data/model_spec.dart';
 import '../../data/personas.dart';
 import '../../services/auth_service.dart';
+import '../../services/cloud_engine.dart';
 import '../../state/app_controller.dart';
 import '../widgets/aurora_background.dart';
 import 'splash_screen.dart';
@@ -35,10 +36,17 @@ class SettingsScreen extends StatelessWidget {
           _StatusCard(controller: controller),
           const SizedBox(height: 22),
 
-          const _Section('Модель'),
+          const _Section('Откуда ответ'),
           const SizedBox(height: 8),
-          _ModelSwitcher(controller: controller),
+          _CloudCard(controller: controller),
           const SizedBox(height: 22),
+
+          if (!controller.isCloud) ...[
+            const _Section('Модель'),
+            const SizedBox(height: 8),
+            _ModelSwitcher(controller: controller),
+            const SizedBox(height: 22),
+          ],
 
           const _Section('Режим ответа'),
           const SizedBox(height: 8),
@@ -49,6 +57,7 @@ class SettingsScreen extends StatelessWidget {
 
           const _Section('Точность и скорость'),
           const SizedBox(height: 4),
+          if (controller.isCloud) _CloudHint(controller: controller) else ...[
           // Значения по умолчанию обязаны попадать точно на сетку делений,
           // иначе ползунок «прыгает» при первом открытии экрана.
           _Slider(
@@ -85,6 +94,7 @@ class SettingsScreen extends StatelessWidget {
               controller.settings.copyWith(contextSize: v),
             ),
           ),
+          ],
           const SizedBox(height: 22),
 
           const _Section('Аккаунт'),
@@ -557,6 +567,324 @@ class _Slider extends StatelessWidget {
       (max - min) / divisions;
 }
 
+/// Выбор источника ответов: облако или модель на телефоне.
+class _CloudCard extends StatefulWidget {
+  const _CloudCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_CloudCard> createState() => _CloudCardState();
+}
+
+class _CloudCardState extends State<_CloudCard> {
+  late final TextEditingController _key = TextEditingController(
+    text: widget.controller.geminiKey,
+  );
+  bool _hidden = true;
+  bool _checking = false;
+  String? _check;
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  /// Ключ сохраняется только после проверки. Неверный ключ, который мы
+  /// молча положили бы в настройки, всплыл бы через минуту при первом
+  /// вопросе — и человек решил бы, что сломано приложение.
+  Future<void> _saveAndCheck() async {
+    setState(() {
+      _checking = true;
+      _check = null;
+    });
+
+    final key = _key.text.trim();
+    final problem = await widget.controller.cloudClient.checkKey(
+      model: widget.controller.cloudModel,
+      apiKey: key,
+    );
+
+    if (!mounted) return;
+    await widget.controller.updateSettings(
+      widget.controller.settings.copyWith(geminiKey: key),
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _checking = false;
+      _check = problem ?? 'Ключ рабочий. Можно спрашивать.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    final on = c.isCloud;
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ModeRow(
+            title: 'Через интернет (Gemini)',
+            note: 'Работает сразу и качественно. Нужен бесплатный ключ.',
+            value: on,
+            onChanged: (v) => c.updateSettings(
+              c.settings.copyWith(cloudMode: v),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ModeRow(
+            title: 'Модель на телефоне',
+            note: 'Без интернета. Сейчас не работает стабильно — чиним.',
+            value: !on,
+            onChanged: (v) => c.updateSettings(
+              c.settings.copyWith(cloudMode: !v),
+            ),
+          ),
+
+          if (on) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'Ключ Gemini',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Получите бесплатно: aistudio.google.com → Get API key. '
+              'Ключ хранится только на этом телефоне и уходит единственный '
+              'раз — на серверы Google. Не публикуйте его.',
+              style: TextStyle(
+                color: AppColors.textFaint,
+                fontSize: 11.5,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _key,
+                    obscureText: _hidden,
+                    style: const TextStyle(fontSize: 13.5),
+                    cursorColor: Colors.white,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFF141414),
+                      hintText: 'AIza…',
+                      hintStyle: const TextStyle(color: AppColors.textFaint),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppSurfaces.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.focus),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => setState(() => _hidden = !_hidden),
+                  icon: Icon(
+                    _hidden ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+                    size: 20,
+                  ),
+                  color: AppColors.textFaint,
+                ),
+              ],
+            ),
+            if (_check != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _check!,
+                style: const TextStyle(fontSize: 12, height: 1.45),
+              ),
+            ],
+            if (_checking) ...[
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Проверяем ключ…',
+                    style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            GradientButton(
+              label: _checking ? 'Проверяем…' : 'Сохранить и проверить ключ',
+              icon: Icons.check_rounded,
+              onPressed: _checking ? null : _saveAndCheck,
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Модель',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            for (final m in CloudModel.values)
+              GestureDetector(
+                onTap: () => c.updateSettings(
+                  c.settings.copyWith(cloudModelId: m.id),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        c.cloudModel.id == m.id
+                            ? Icons.radio_button_checked_rounded
+                            : Icons.radio_button_off_rounded,
+                        size: 18,
+                        color: c.cloudModel.id == m.id
+                            ? Colors.white
+                            : AppColors.textFaint,
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              m.title,
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              m.note,
+                              style: const TextStyle(
+                                fontSize: 11.3,
+                                color: AppColors.textFaint,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ModeRow extends StatelessWidget {
+  const _ModeRow({
+    required this.title,
+    required this.note,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String note;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: Row(
+        children: [
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: Colors.white,
+            activeTrackColor: Colors.white,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  note,
+                  style: const TextStyle(
+                    fontSize: 11.3,
+                    color: AppColors.textFaint,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// В облачном режиме половина локальных настроек не имеет смысла:
+/// контекст определяет сервис, а температуру задаёт его собственная
+/// настройка по умолчанию. Показываем только то, что реально влияет.
+class _CloudHint extends StatelessWidget {
+  const _CloudHint({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Slider(
+            title: 'Длина ответа',
+            hint: 'Больше — ответ длиннее.',
+            value: controller.settings.maxTokens.toDouble(),
+            min: 128,
+            max: 2048,
+            steps: 29,
+            format: (v) => 'до ${v.round()} токенов',
+            onChanged: (v) => controller.updateSettings(
+              controller.settings.copyWith(maxTokens: v.round()),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Температуру и размер контекста задаёт сам сервис: облачная '
+            'модель помнит больше и отвечает свободнее, чем локальная.',
+            style: TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 11.3,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Размеры контекста, которые телефон действительно потянет.
 ///
 /// Не ползунок, а выбор из списка: у ползунка верхняя граница зависит от
@@ -876,7 +1204,7 @@ class _AboutCard extends StatelessWidget {
           // скриншоту, какая сборка запущена: в заголовке значилась модель,
           // которой в новом каталоге уже нет, и вывод делался неверный.
           const _Row(label: 'Версия', value: appVersion),
-          const _Row(label: 'Движок', value: 'llama.cpp, libllama.so'),
+          _Row(label: 'Движок', value: 'Gemini · облако'),
           const _Row(label: 'Формат диалога', value: 'ChatML, вручную'),
           const _Row(label: 'Модели', value: 'Qwen 2.5 / Qwen 3 Instruct'),
           const _Row(label: 'Лицензия модели', value: 'Apache 2.0 (Qwen)'),
@@ -894,6 +1222,14 @@ class _AboutCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Показывает у ключа только начало: этого достаточно, чтобы понять,
+/// вставлен ли он вообще, но недостаточно, чтобы украсть его из отчёта.
+String _maskKey(String key) {
+  final k = key.trim();
+  if (k.isEmpty) return '—';
+  return k.length <= 8 ? '••••' : '${k.substring(0, 6)}…${k.length} симв.';
 }
 
 /// Экранирует текст так, чтобы его было видно целиком в одну строку.
@@ -927,23 +1263,37 @@ class _DiagnosticsCard extends StatelessWidget {
     String value() {
       final b = StringBuffer();
       b.writeln('Localis $appVersion');
-      b.writeln('Модель: ${out?.title ?? 'нет'} (${out?.id ?? '—'})');
-      b.writeln('Файл: ${out?.fileName ?? '—'}');
-      b.writeln(
-        'Контекст: ${controller.effectiveContextSize} из '
-        '${controller.settings.contextSize}',
-      );
-      b.writeln('Ядер: ${cap?.cores ?? 0}');
-      b.writeln('Свободно RAM: ${formatBytes(cap?.freeRamBytes ?? 0, decimals: 2)}');
-      b.writeln('Vulkan: ${cap?.vulkanSupported ?? false ? 'да' : 'нет'}');
-      b.writeln('Движок: llama_flutter_android');
+      // Ключ в отчёт не попадает: отчёт копируется в буфер и может уйти
+      // в сообщение об ошибке.
+      b.writeln('Режим: ${controller.isCloud ? 'облако' : 'локально'}');
+      if (controller.isCloud) {
+        b.writeln('Модель: ${controller.cloudModel.title} '
+            '(${controller.cloudModel.id})');
+        b.writeln('Ключ задан: ${controller.hasApiKey ? 'да' : 'нет'}');
+        b.writeln('Ключ (начало): ${_maskKey(controller.geminiKey)}');
+      } else {
+        b.writeln('Модель: ${out?.title ?? 'нет'} (${out?.id ?? '—'})');
+        b.writeln('Файл: ${out?.fileName ?? '—'}');
+        b.writeln(
+          'Контекст: ${controller.effectiveContextSize} из '
+          '${controller.settings.contextSize}',
+        );
+        b.writeln('Ядер: ${cap?.cores ?? 0}');
+        b.writeln(
+          'Свободно RAM: ${formatBytes(cap?.freeRamBytes ?? 0, decimals: 2)}',
+        );
+        b.writeln('Vulkan: ${cap?.vulkanSupported ?? false ? 'да' : 'нет'}');
+        b.writeln('Движок: llama_flutter_android');
+      }
       if (controller.error != null) b.writeln('Ошибка: ${controller.error}');
       b.writeln('Сообщений в диалоге: ${controller.session.messages.length}');
       b.writeln(
         'Ответ модели (${controller.lastRawOutput.length} симв.): '
         '${_escape(controller.lastRawOutput)}',
       );
-      b.writeln('Промпт: ${_escape(controller.lastPrompt)}');
+      if (!controller.isCloud) {
+        b.writeln('Промпт: ${_escape(controller.lastPrompt)}');
+      }
       return b.toString();
     }
 
